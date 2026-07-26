@@ -56,4 +56,6 @@ Ship the installer with the blank rules file. After someone captures their layou
 
 ## License / third party
 
+This project is licensed under the [MIT License](LICENSE).
+
 See [THIRD-PARTY.md](THIRD-PARTY.md) for VirtualDesktop attribution.
