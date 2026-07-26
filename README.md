@@ -2,17 +2,22 @@
 
 Save and restore window positions across Windows virtual desktops — with an optional restore at sign-in.
 
-Works on Windows 10/11 **x64** with [PowerShell 7](https://aka.ms/powershell). The GUI installer is **self-contained** (bundles .NET — no separate Desktop Runtime install). Blank starter pack: no personal apps or paths.
+Works on Windows 10/11 **x64**. The GUI is **self-contained** (bundles .NET). Scripts run on **Windows PowerShell 5.1** (built-in) or **PowerShell 7** (preferred when available).
 
 ## Install (recommended)
 
 1. Download **`WindowLayoutSetup.exe`** from the [latest Release](https://github.com/chrisflory/window-layout/releases/latest).
 2. Run the installer (no admin required; installs under `%LOCALAPPDATA%\Programs\WindowLayout`).
-3. Open **Start Menu → Window Layout** (always created). Check **Create a desktop shortcut** on the tasks page if you want one.
+3. Open **Start Menu → Window Layout**.
 
-The wizard can also install the [VirtualDesktop](https://github.com/MScholtes/PSVirtualDesktop) PowerShell module and register a logon restore task.
+Installer checkboxes:
 
-**Still required on the PC:** PowerShell 7 (`pwsh`) for Capture / Apply / logon scripts.
+- **Install PowerShell 7** (optional, via winget) — recommended
+- **Install VirtualDesktop module** (needed once, internet)
+- **Restore at logon** (optional)
+- **Desktop shortcut** (optional)
+
+If you skip PowerShell 7, the built-in Windows PowerShell 5.1 is used.
 
 ## Everyday use
 

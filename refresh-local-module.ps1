@@ -1,4 +1,4 @@
-#Requires -Version 7
+#Requires -Version 5.1
 <#
 .SYNOPSIS
   Refresh the local (ProgramData) copy of VirtualDesktop after Update-Module.
@@ -13,7 +13,17 @@ if (-not $mod) {
 }
 
 $srcRoot = Split-Path $mod.ModuleBase -Parent
-$dstRoot = 'C:\ProgramData\PowerShell\Modules\VirtualDesktop'
-New-Item -ItemType Directory -Path $dstRoot -Force | Out-Null
-Copy-Item -Path (Join-Path $srcRoot '*') -Destination $dstRoot -Recurse -Force
-Write-Host "Refreshed $dstRoot from $($mod.ModuleBase) (v$($mod.Version))"
+$versioned = (Split-Path $mod.ModuleBase -Leaf) -match '^\d'
+
+foreach ($dstRoot in @(
+  'C:\ProgramData\PowerShell\Modules\VirtualDesktop',
+  'C:\ProgramData\WindowsPowerShell\Modules\VirtualDesktop'
+)) {
+  New-Item -ItemType Directory -Path $dstRoot -Force | Out-Null
+  if ($versioned) {
+    Copy-Item -Path (Join-Path $srcRoot '*') -Destination $dstRoot -Recurse -Force
+  } else {
+    Copy-Item -Path (Join-Path $mod.ModuleBase '*') -Destination $dstRoot -Recurse -Force
+  }
+  Write-Host "Refreshed $dstRoot from $($mod.ModuleBase)"
+}

@@ -2,7 +2,7 @@
 ; Build: run ..\build-installer.ps1 (publishes GUI then compiles)
 
 #define MyAppName "Window Layout"
-#define MyAppVersion "1.1.0"
+#define MyAppVersion "1.1.1"
 #define MyAppPublisher "chrisflory"
 #define MyAppURL "https://github.com/chrisflory/window-layout"
 #define MyAppExeName "Window Layout.exe"
@@ -42,6 +42,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Additional icons:"; Flags: unchecked
+Name: "installps7"; Description: "Install &PowerShell 7 (recommended; uses winget, needs internet)"; GroupDescription: "Components:"; Flags: unchecked
 Name: "installmodule"; Description: "Install VirtualDesktop PowerShell module (required, needs internet)"; GroupDescription: "Components:"; Flags: checkedonce
 Name: "logontask"; Description: "Restore window layout automatically at &logon"; GroupDescription: "Startup:"; Flags: unchecked
 
@@ -55,6 +56,7 @@ Source: "..\list-window-layout.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\register-logon-task.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\refresh-local-module.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\setup.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\install-powershell7.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\window-layout.rules.json"; DestDir: "{app}"; Flags: ignoreversion onlyifdoesntexist
 Source: "..\DISABLE-LAYOUT.example"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
@@ -84,12 +86,14 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\App Paths\WindowL
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\App Paths\WindowLayout.exe"; ValueType: string; ValueName: "Path"; ValueData: "{app}"
 
 [Run]
-Filename: "{app}\run-pwsh.cmd"; Parameters: "-File ""{app}\setup.ps1"""; StatusMsg: "Installing VirtualDesktop module..."; Flags: runhidden waituntilterminated; Tasks: installmodule
-Filename: "{app}\run-pwsh.cmd"; Parameters: "-File ""{app}\register-logon-task.ps1"""; StatusMsg: "Registering logon task..."; Flags: runhidden waituntilterminated; Tasks: logontask
+; Optional PS7 first so later steps can use pwsh when chosen
+Filename: "{app}\run-powershell.cmd"; Parameters: "-File ""{app}\install-powershell7.ps1"""; StatusMsg: "Installing PowerShell 7..."; Flags: runhidden waituntilterminated; Tasks: installps7
+Filename: "{app}\run-powershell.cmd"; Parameters: "-File ""{app}\setup.ps1"""; StatusMsg: "Installing VirtualDesktop module..."; Flags: runhidden waituntilterminated; Tasks: installmodule
+Filename: "{app}\run-powershell.cmd"; Parameters: "-File ""{app}\register-logon-task.ps1"""; StatusMsg: "Registering logon task..."; Flags: runhidden waituntilterminated; Tasks: logontask
 Filename: "{app}\{#MyAppExeName}"; Description: "Open Window Layout now"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
-Filename: "{app}\run-pwsh.cmd"; Parameters: "-File ""{app}\register-logon-task.ps1"" -Unregister"; Flags: runhidden waituntilterminated; RunOnceId: UnregLayoutTask
+Filename: "{app}\run-powershell.cmd"; Parameters: "-File ""{app}\register-logon-task.ps1"" -Unregister"; Flags: runhidden waituntilterminated; RunOnceId: UnregLayoutTask
 
 [UninstallDelete]
 Type: files; Name: "{app}\apply-window-layout.log"

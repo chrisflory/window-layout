@@ -1,10 +1,10 @@
-#Requires -Version 7
+#Requires -Version 5.1
 <#
 .SYNOPSIS
   Register (or remove) a logon task that runs apply-window-layout.ps1
 
 .EXAMPLE
-  pwsh -File register-logon-task.ps1
+  powershell -File register-logon-task.ps1
   pwsh -File register-logon-task.ps1 -Unregister
 #>
 [CmdletBinding()]
@@ -25,9 +25,23 @@ if ($Unregister) {
   return
 }
 
-$pwsh = (Get-Command pwsh -ErrorAction Stop).Source
+function Get-LayoutPowerShell {
+  $candidates = @(
+    "$env:ProgramFiles\PowerShell\7\pwsh.exe",
+    "$env:LocalAppData\Microsoft\WindowsApps\pwsh.exe",
+    "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
+  )
+  foreach ($c in $candidates) {
+    if (Test-Path -LiteralPath $c) { return $c }
+  }
+  $cmd = Get-Command pwsh, powershell -ErrorAction SilentlyContinue | Select-Object -First 1
+  if ($cmd) { return $cmd.Source }
+  throw 'No PowerShell executable found.'
+}
+
+$psExe = Get-LayoutPowerShell
 $arg = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$ApplyScript`""
-$action = New-ScheduledTaskAction -Execute $pwsh -Argument $arg
+$action = New-ScheduledTaskAction -Execute $psExe -Argument $arg
 $trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
 $trigger.Delay = 'PT15S'
 $settings = New-ScheduledTaskSettingsSet `
@@ -42,5 +56,6 @@ Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger `
   -Description 'Restore virtual-desktop window layout after logon' | Out-Null
 
 Write-Host "Registered '$TaskName' (at logon +15s) for $env:USERNAME"
+Write-Host "Engine: $psExe"
 Write-Host "Apply script: $ApplyScript"
 Get-ScheduledTask -TaskName $TaskName | Select-Object TaskName, State

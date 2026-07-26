@@ -1,5 +1,11 @@
-#Requires -Version 7
+#Requires -Version 5.1
 # List visible top-level windows: process, virtual desktop, monitor, geometry
+$ErrorActionPreference = 'Stop'
+foreach ($localModulesPath in @('C:\ProgramData\PowerShell\Modules','C:\ProgramData\WindowsPowerShell\Modules')) {
+  if ((Test-Path $localModulesPath) -and ($env:PSModulePath -notlike "*$localModulesPath*")) {
+    $env:PSModulePath = "$localModulesPath;$env:PSModulePath"
+  }
+}
 Import-Module VirtualDesktop -DisableNameChecking -ErrorAction Stop
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -TypeDefinition @'
@@ -87,3 +93,4 @@ foreach ($s in $screens) {
   $i++
 }
 Write-Host ("Windows listed: {0}" -f $rows.Count)
+

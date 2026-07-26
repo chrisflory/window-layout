@@ -1,4 +1,4 @@
-#Requires -Version 7
+#Requires -Version 5.1
 <#
 .SYNOPSIS
   Apply saved window-layout.rules.json: ensure desktops, launch apps, place windows.
@@ -58,9 +58,14 @@ $NeverManage = [System.Collections.Generic.HashSet[string]]::new(
 
 try {
 
-$localModules = 'C:\ProgramData\PowerShell\Modules'
-if ((Test-Path $localModules) -and ($env:PSModulePath -notlike "*$localModules*")) {
-  $env:PSModulePath = "$localModules;$env:PSModulePath"
+$localModules = @(
+  'C:\ProgramData\PowerShell\Modules',
+  'C:\ProgramData\WindowsPowerShell\Modules'
+)
+foreach ($localModulesPath in $localModules) {
+  if ((Test-Path $localModulesPath) -and ($env:PSModulePath -notlike "*$localModulesPath*")) {
+    $env:PSModulePath = "$localModulesPath;$env:PSModulePath"
+  }
 }
 $imported = $false
 for ($attempt = 1; $attempt -le 5; $attempt++) {
@@ -371,7 +376,7 @@ if (-not (Test-Path -LiteralPath $RulesFile)) {
 }
 
 $doc = Get-Content -LiteralPath $RulesFile -Raw | ConvertFrom-Json
-$delay = if ($null -ne $DelaySeconds) { [int]$DelaySeconds } else { [int]($doc.startupDelaySeconds ?? 0) }
+$delay = if ($null -ne $DelaySeconds) { [int]$DelaySeconds } elseif ($null -ne $doc.startupDelaySeconds) { [int]$doc.startupDelaySeconds } else { 0 }
 if ($delay -gt 0) {
   Write-Host "Waiting ${delay}s before applying layout..."
   Start-Sleep -Seconds $delay

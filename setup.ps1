@@ -1,16 +1,16 @@
-#Requires -Version 7
+#Requires -Version 5.1
 <#
 .SYNOPSIS
   One-shot setup for the window-layout kit on a new machine.
 
 .DESCRIPTION
-  - Checks PowerShell 7
+  - Works on Windows PowerShell 5.1 or PowerShell 7+
   - Installs the VirtualDesktop module (CurrentUser)
-  - Copies it to C:\ProgramData\PowerShell\Modules (avoids OneDrive hydration issues at logon)
+  - Copies it to ProgramData module paths (logon-safe, both PS editions)
   - Verifies the module loads
 
 .EXAMPLE
-  pwsh -File setup.ps1
+  powershell -File setup.ps1
   pwsh -File setup.ps1 -RegisterLogonTask
 #>
 [CmdletBinding()]
@@ -22,10 +22,6 @@ $ErrorActionPreference = 'Stop'
 
 Write-Host "=== Window Layout Kit setup ===" -ForegroundColor Cyan
 Write-Host "PowerShell: $($PSVersionTable.PSVersion) ($($PSVersionTable.PSEdition))"
-
-if ($PSVersionTable.PSVersion.Major -lt 7) {
-  throw 'PowerShell 7+ is required. Install from https://aka.ms/powershell'
-}
 
 # NuGet provider (needed for Install-Module on some machines)
 try {
@@ -43,24 +39,28 @@ Set-PSRepository -Name PSGallery -InstallationPolicy Trusted -ErrorAction Silent
 Write-Host 'Installing VirtualDesktop module (CurrentUser)...'
 Install-Module VirtualDesktop -Scope CurrentUser -Force -AllowClobber -ErrorAction Stop
 
-# Resolve installed module path (Documents or OneDrive-redirected Documents)
 $mod = Get-Module VirtualDesktop -ListAvailable | Sort-Object Version -Descending | Select-Object -First 1
 if (-not $mod) { throw 'VirtualDesktop module install reported success but module was not found.' }
 Write-Host "Installed: $($mod.Version) at $($mod.ModuleBase)"
 
-$dstRoot = 'C:\ProgramData\PowerShell\Modules\VirtualDesktop'
-Write-Host "Copying module to local path (logon-safe): $dstRoot"
-New-Item -ItemType Directory -Path $dstRoot -Force | Out-Null
-$srcRoot = Split-Path $mod.ModuleBase -Parent  # ...\VirtualDesktop
-if ((Split-Path $mod.ModuleBase -Leaf) -match '^\d') {
-  # ModuleBase is version folder
-  Copy-Item -Path (Join-Path $srcRoot '*') -Destination $dstRoot -Recurse -Force
-} else {
-  Copy-Item -Path (Join-Path $mod.ModuleBase '*') -Destination $dstRoot -Recurse -Force
+$srcRoot = Split-Path $mod.ModuleBase -Parent
+$versioned = (Split-Path $mod.ModuleBase -Leaf) -match '^\d'
+
+$destRoots = @(
+  'C:\ProgramData\PowerShell\Modules\VirtualDesktop',
+  'C:\ProgramData\WindowsPowerShell\Modules\VirtualDesktop'
+)
+foreach ($dstRoot in $destRoots) {
+  Write-Host "Copying module to local path (logon-safe): $dstRoot"
+  New-Item -ItemType Directory -Path $dstRoot -Force | Out-Null
+  if ($versioned) {
+    Copy-Item -Path (Join-Path $srcRoot '*') -Destination $dstRoot -Recurse -Force
+  } else {
+    Copy-Item -Path (Join-Path $mod.ModuleBase '*') -Destination $dstRoot -Recurse -Force
+  }
 }
 
-# Verify load using ProgramData first
-$env:PSModulePath = "C:\ProgramData\PowerShell\Modules;$env:PSModulePath"
+$env:PSModulePath = "C:\ProgramData\PowerShell\Modules;C:\ProgramData\WindowsPowerShell\Modules;$env:PSModulePath"
 Import-Module VirtualDesktop -DisableNameChecking -Force -ErrorAction Stop
 $desktops = @(Get-DesktopList)
 Write-Host "Module OK. Current virtual desktops ($($desktops.Count)):"
@@ -82,12 +82,13 @@ if ($RegisterLogonTask) {
   & (Join-Path $PSScriptRoot 'register-logon-task.ps1')
 }
 
+$engine = if (Get-Command pwsh -ErrorAction SilentlyContinue) { 'pwsh' } else { 'powershell' }
 Write-Host ""
 Write-Host "Setup complete. Next:" -ForegroundColor Green
 Write-Host "  1. Arrange apps on your virtual desktops"
-Write-Host "  2. pwsh -File `"$(Join-Path $PSScriptRoot 'capture-window-layout.ps1')`""
-Write-Host "  3. pwsh -File `"$(Join-Path $PSScriptRoot 'apply-window-layout.ps1')`" -SkipLaunch -DelaySeconds 0"
-Write-Host "  4. Optional logon: pwsh -File `"$(Join-Path $PSScriptRoot 'register-logon-task.ps1')`""
+Write-Host "  2. $engine -File `"$(Join-Path $PSScriptRoot 'capture-window-layout.ps1')`""
+Write-Host "  3. $engine -File `"$(Join-Path $PSScriptRoot 'apply-window-layout.ps1')`" -SkipLaunch -DelaySeconds 0"
+Write-Host "  4. Optional logon: $engine -File `"$(Join-Path $PSScriptRoot 'register-logon-task.ps1')`""
 Write-Host ""
 Write-Host "Emergency stop (skip apply if this file exists):"
 Write-Host "  New-Item `"$(Join-Path $PSScriptRoot 'DISABLE-LAYOUT')`" -ItemType File"

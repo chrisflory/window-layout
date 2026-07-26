@@ -500,17 +500,17 @@ public sealed class MainForm : Form
                 return 1;
             }
 
-            var pwsh = FindPwsh();
-            if (pwsh is null)
+            var ps = FindPowerShell();
+            if (ps is null)
             {
-                AppendLog("PowerShell 7 (pwsh) not found. Install from https://aka.ms/powershell");
+                AppendLog("No PowerShell found on this PC.");
                 MessageBox.Show(this,
-                    "PowerShell 7 (pwsh) is required but was not found.\n\nInstall it from https://aka.ms/powershell",
+                    "No PowerShell executable was found.\n\nWindows PowerShell 5.1 should be present on Windows 10/11, or install PowerShell 7 from https://aka.ms/powershell",
                     "Window Layout", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return 1;
             }
 
-            AppendLog($"Running {scriptName}…");
+            AppendLog($"Running {scriptName} with {Path.GetFileName(ps)}…");
 
             var args = new StringBuilder();
             args.Append("-NoProfile -ExecutionPolicy Bypass -File \"").Append(script).Append('"');
@@ -519,7 +519,7 @@ public sealed class MainForm : Form
 
             var psi = new ProcessStartInfo
             {
-                FileName = pwsh,
+                FileName = ps,
                 Arguments = args.ToString(),
                 WorkingDirectory = AppDir,
                 UseShellExecute = false,
@@ -561,33 +561,37 @@ public sealed class MainForm : Form
         }
     }
 
-    private static string? FindPwsh()
+    private static string? FindPowerShell()
     {
         var candidates = new[]
         {
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "PowerShell", "7", "pwsh.exe"),
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Microsoft", "WindowsApps", "pwsh.exe")
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Microsoft", "WindowsApps", "pwsh.exe"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "WindowsPowerShell", "v1.0", "powershell.exe")
         };
         foreach (var c in candidates)
             if (File.Exists(c)) return c;
 
-        try
+        foreach (var name in new[] { "pwsh", "powershell" })
         {
-            var psi = new ProcessStartInfo
+            try
             {
-                FileName = "where.exe",
-                Arguments = "pwsh",
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                CreateNoWindow = true
-            };
-            using var p = Process.Start(psi);
-            var output = p?.StandardOutput.ReadToEnd() ?? "";
-            p?.WaitForExit(3000);
-            var line = output.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).FirstOrDefault();
-            if (line is not null && File.Exists(line)) return line;
+                var psi = new ProcessStartInfo
+                {
+                    FileName = "where.exe",
+                    Arguments = name,
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    CreateNoWindow = true
+                };
+                using var p = Process.Start(psi);
+                var output = p?.StandardOutput.ReadToEnd() ?? "";
+                p?.WaitForExit(3000);
+                var line = output.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).FirstOrDefault();
+                if (line is not null && File.Exists(line)) return line;
+            }
+            catch { /* ignore */ }
         }
-        catch { /* ignore */ }
 
         return null;
     }

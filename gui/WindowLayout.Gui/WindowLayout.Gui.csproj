@@ -8,7 +8,7 @@
     <ApplicationIcon>..\..\installer\assets\app.ico</ApplicationIcon>
     <AssemblyName>WindowLayout</AssemblyName>
     <RootNamespace>WindowLayout.Gui</RootNamespace>
-    <Version>1.1.0</Version>
+    <Version>1.1.1</Version>
     <Product>Window Layout</Product>
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>true</SelfContained>

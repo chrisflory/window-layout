@@ -1,4 +1,4 @@
-#Requires -Version 7
+#Requires -Version 5.1
 <#
 .SYNOPSIS
   Capture visible windows into window-layout.rules.json for apply-window-layout.ps1
@@ -20,6 +20,11 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+foreach ($localModulesPath in @('C:\ProgramData\PowerShell\Modules','C:\ProgramData\WindowsPowerShell\Modules')) {
+  if ((Test-Path $localModulesPath) -and ($env:PSModulePath -notlike "*$localModulesPath*")) {
+    $env:PSModulePath = "$localModulesPath;$env:PSModulePath"
+  }
+}
 Import-Module VirtualDesktop -DisableNameChecking -ErrorAction Stop
 Add-Type -AssemblyName System.Windows.Forms
 
@@ -271,3 +276,4 @@ $doc | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $OutFile -Encoding utf
 Write-Host "Captured $($rules.Count) rule(s) -> $OutFile"
 $rules | Select-Object process, desktop, left, top, width, height, maximized, launch, titleMatch |
   Format-Table -AutoSize
+

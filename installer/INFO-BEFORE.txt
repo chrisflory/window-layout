@@ -6,15 +6,17 @@ Windows virtual desktops (similar to KDE window rules).
 
 You will need:
   • Windows 10 or 11 (64-bit)
-  • PowerShell 7 (pwsh) — install from https://aka.ms/powershell if missing
+  • PowerShell — Windows PowerShell 5.1 (built into Windows) works
+  • PowerShell 7 is optional but recommended (checkbox on the next pages;
+    installs via winget when selected)
 
 The app itself is self-contained (no separate .NET install required).
 
 What gets installed:
   • App under %LOCALAPPDATA%\Programs\WindowLayout
-  • Start Menu: Window Layout (always — All apps + tools folder)
-  • Optional desktop shortcut only if you check that box (off by default)
-  • Optional VirtualDesktop module + logon restore
+  • Start Menu: Window Layout (always)
+  • Optional desktop shortcut (off by default)
+  • Optional PowerShell 7, VirtualDesktop module, and logon restore
 
 After setup:
   1. Name your virtual desktops (Win+Tab)
