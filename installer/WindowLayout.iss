@@ -2,7 +2,7 @@
 ; Build: run ..\build-installer.ps1 (publishes GUI then compiles)
 
 #define MyAppName "Window Layout"
-#define MyAppVersion "1.0.3"
+#define MyAppVersion "1.1.0"
 #define MyAppPublisher "chrisflory"
 #define MyAppURL "https://github.com/chrisflory/window-layout"
 #define MyAppExeName "Window Layout.exe"
@@ -94,6 +94,7 @@ Filename: "{app}\run-pwsh.cmd"; Parameters: "-File ""{app}\register-logon-task.p
 [UninstallDelete]
 Type: files; Name: "{app}\apply-window-layout.log"
 Type: files; Name: "{app}\DISABLE-LAYOUT"
+Type: files; Name: "{app}\ui-state.json"
 Type: dirifempty; Name: "{app}"
 
 [Code]

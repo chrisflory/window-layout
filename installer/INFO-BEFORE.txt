@@ -5,12 +5,14 @@ This installer sets up tools that save and restore window positions across
 Windows virtual desktops (similar to KDE window rules).
 
 You will need:
-  • Windows 10 or 11
+  • Windows 10 or 11 (64-bit)
   • PowerShell 7 (pwsh) — install from https://aka.ms/powershell if missing
+
+The app itself is self-contained (no separate .NET install required).
 
 What gets installed:
   • App under %LOCALAPPDATA%\Programs\WindowLayout
-  • Start Menu: Window Layout (always — All apps + folder)
+  • Start Menu: Window Layout (always — All apps + tools folder)
   • Optional desktop shortcut only if you check that box (off by default)
   • Optional VirtualDesktop module + logon restore
 

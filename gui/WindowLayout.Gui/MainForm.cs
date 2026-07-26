@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 
 namespace WindowLayout.Gui;
@@ -19,6 +20,7 @@ public sealed class MainForm : Form
     private string AppDir => AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
     private string RulesPath => Path.Combine(AppDir, "window-layout.rules.json");
     private string DisableFlag => Path.Combine(AppDir, "DISABLE-LAYOUT");
+    private string UiStatePath => Path.Combine(AppDir, "ui-state.json");
 
     public MainForm()
     {
@@ -31,65 +33,90 @@ public sealed class MainForm : Form
         ForeColor = Color.FromArgb(248, 250, 252);
         Font = new Font("Segoe UI", 10f);
         Padding = new Padding(0);
+        RestoreWindowBounds();
 
         var header = new Panel
         {
             Dock = DockStyle.Top,
             Height = 88,
-            BackColor = Color.FromArgb(15, 23, 42),
-            Padding = new Padding(28, 18, 28, 12)
+            BackColor = Color.FromArgb(15, 23, 42)
         };
-        var title = new Label
+        header.Controls.Add(new Label
         {
             Text = "Window Layout",
             Font = new Font("Segoe UI Semibold", 18f),
             AutoSize = true,
             Location = new Point(28, 16),
             ForeColor = Color.White
-        };
-        var subtitle = new Label
+        });
+        header.Controls.Add(new Label
         {
             Text = "Save where your windows live, then restore them — including at sign-in.",
             AutoSize = true,
             Location = new Point(30, 52),
             ForeColor = Color.FromArgb(148, 163, 184)
-        };
-        header.Controls.Add(title);
-        header.Controls.Add(subtitle);
+        });
 
-        var body = new Panel
+        // Fixed bottom bar — status + clear activity
+        var bottomBar = new Panel
         {
-            Dock = DockStyle.Fill,
-            Padding = new Padding(28, 16, 28, 16)
+            Dock = DockStyle.Bottom,
+            Height = 36,
+            BackColor = Color.FromArgb(15, 23, 42),
+            Padding = new Padding(16, 0, 12, 0)
+        };
+        _statusLine.Dock = DockStyle.Fill;
+        _statusLine.TextAlign = ContentAlignment.MiddleLeft;
+        _statusLine.ForeColor = Color.FromArgb(148, 163, 184);
+        _statusLine.Text = "";
+        var btnClearLog = new Button
+        {
+            Text = "Clear log",
+            Dock = DockStyle.Right,
+            Width = 90,
+            FlatStyle = FlatStyle.Flat,
+            BackColor = Color.FromArgb(51, 65, 85),
+            ForeColor = Color.White,
+            Cursor = Cursors.Hand,
+            FlatAppearance = { BorderSize = 0 },
+            Margin = new Padding(8)
+        };
+        btnClearLog.Click += (_, _) => { _log.Clear(); };
+        bottomBar.Controls.Add(_statusLine);
+        bottomBar.Controls.Add(btnClearLog);
+
+        // Top actions (fixed height); activity log fills the rest and scrolls
+        var steps = new Panel
+        {
+            Dock = DockStyle.Top,
+            Height = 360,
+            Padding = new Padding(28, 12, 28, 8)
         };
 
         _nextHint.AutoSize = false;
         _nextHint.Location = new Point(28, 8);
         _nextHint.Size = new Size(680, 36);
+        _nextHint.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
         _nextHint.Font = new Font("Segoe UI Semibold", 11f);
         _nextHint.ForeColor = Color.FromArgb(103, 232, 249);
         _nextHint.Text = "Loading…";
 
-        _statusLine.AutoSize = false;
-        _statusLine.Location = new Point(28, 44);
-        _statusLine.Size = new Size(680, 22);
-        _statusLine.ForeColor = Color.FromArgb(148, 163, 184);
-        _statusLine.Text = "";
-
-        var stepsLabel = SectionLabel("Setup (do once, or whenever you rearrange)", 28, 78);
+        var stepsLabel = SectionLabel("Setup (do once, or whenever you rearrange)", 28, 48);
 
         _btn1 = StepButton(
             "1  Save current layout",
             "Arrange your windows first, then click. Remembers apps, desktops, and positions.",
-            28, 108, Color.FromArgb(8, 145, 178));
+            28, 72, Color.FromArgb(8, 145, 178));
         _btn2 = StepButton(
             "2  Test restore now",
             "Moves windows back to the saved layout. Try this before turning on logon.",
-            28, 178, Color.FromArgb(5, 150, 105));
+            28, 138, Color.FromArgb(5, 150, 105));
         _btn3 = StepButton(
             "3  Turn on at sign-in",
             "Runs the restore automatically after you log into Windows.",
-            28, 248, Color.FromArgb(37, 99, 235));
+            28, 204, Color.FromArgb(37, 99, 235));
+        foreach (var b in new[] { _btn1, _btn2, _btn3 })
+            b.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
 
         _btn1.Click += async (_, _) =>
         {
@@ -117,28 +144,23 @@ public sealed class MainForm : Form
         {
             Text = "More options ▸",
             AutoSize = true,
-            Location = new Point(28, 322),
+            Location = new Point(28, 272),
             LinkColor = Color.FromArgb(148, 163, 184),
             ActiveLinkColor = Color.FromArgb(103, 232, 249),
             VisitedLinkColor = Color.FromArgb(148, 163, 184)
         };
 
-        _advancedPanel.Location = new Point(28, 348);
-        _advancedPanel.Size = new Size(680, 52);
+        _advancedPanel.Location = new Point(28, 296);
+        _advancedPanel.Size = new Size(680, 96);
+        _advancedPanel.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
         _advancedPanel.Visible = false;
 
         var btnOff = SmallButton("Turn off sign-in restore", 0, 0, Color.FromArgb(71, 85, 105));
         var btnList = SmallButton("List open windows", 230, 0, Color.FromArgb(71, 85, 105));
         var btnFolder = SmallButton("Open files folder", 460, 0, Color.FromArgb(71, 85, 105));
-        var btnKill = SmallButton("Emergency stop", 0, 0, Color.FromArgb(185, 28, 28));
-        var btnClear = SmallButton("Clear emergency stop", 230, 0, Color.FromArgb(71, 85, 105));
-        var btnRepair = SmallButton("Repair module", 460, 0, Color.FromArgb(71, 85, 105));
-
-        // two rows of advanced
-        _advancedPanel.Height = 96;
-        btnKill.Location = new Point(0, 48);
-        btnClear.Location = new Point(230, 48);
-        btnRepair.Location = new Point(460, 48);
+        var btnKill = SmallButton("Emergency stop", 0, 48, Color.FromArgb(185, 28, 28));
+        var btnClear = SmallButton("Clear emergency stop", 230, 48, Color.FromArgb(71, 85, 105));
+        var btnRepair = SmallButton("Repair module", 460, 48, Color.FromArgb(71, 85, 105));
 
         btnOff.Click += async (_, _) =>
         {
@@ -164,52 +186,144 @@ public sealed class MainForm : Form
 
         _advancedPanel.Controls.AddRange([btnOff, btnList, btnFolder, btnKill, btnClear, btnRepair]);
 
-        var logLabel = SectionLabel("Activity", 28, 360);
-        // reposition log label dynamically via layout helper — use fixed with advanced collapsed default
-        void PlaceLogArea()
+        void RelayoutSteps()
         {
-            var top = _advancedOpen ? 456 : 360;
-            logLabel.Location = new Point(28, top);
-            _log.Location = new Point(28, top + 28);
-            _log.Size = new Size(ClientSize.Width - 56, Math.Max(120, ClientSize.Height - top - 56));
-            moreToggle.Location = new Point(28, 322);
-            _advancedPanel.Location = new Point(28, 348);
+            var w = Math.Max(640, steps.ClientSize.Width - 56);
+            _nextHint.Width = w;
+            _btn1.Width = _btn2.Width = _btn3.Width = w;
+            _advancedPanel.Width = w;
+            steps.Height = _advancedOpen ? 420 : 300;
         }
-
-        _log.Multiline = true;
-        _log.ScrollBars = ScrollBars.Both;
-        _log.ReadOnly = true;
-        _log.BackColor = Color.FromArgb(15, 23, 42);
-        _log.ForeColor = Color.FromArgb(226, 232, 240);
-        _log.Font = new Font("Consolas", 9f);
-        _log.WordWrap = false;
-        _log.BorderStyle = BorderStyle.FixedSingle;
 
         moreToggle.LinkClicked += (_, _) =>
         {
             _advancedOpen = !_advancedOpen;
             _advancedPanel.Visible = _advancedOpen;
             moreToggle.Text = _advancedOpen ? "More options ▾" : "More options ▸";
-            PlaceLogArea();
+            RelayoutSteps();
+            SaveWindowBounds();
         };
 
-        body.Controls.AddRange([
-            _nextHint, _statusLine, stepsLabel,
-            _btn1, _btn2, _btn3,
-            moreToggle, _advancedPanel,
-            logLabel, _log
-        ]);
+        if (_advancedOpen)
+        {
+            _advancedPanel.Visible = true;
+            moreToggle.Text = "More options ▾";
+        }
 
-        Controls.Add(body);
+        steps.Controls.AddRange([
+            _nextHint, stepsLabel,
+            _btn1, _btn2, _btn3,
+            moreToggle, _advancedPanel
+        ]);
+        steps.Resize += (_, _) => RelayoutSteps();
+
+        var logPanel = new Panel
+        {
+            Dock = DockStyle.Fill,
+            Padding = new Padding(28, 4, 28, 8)
+        };
+        var logHeader = new Label
+        {
+            Text = "Activity",
+            Dock = DockStyle.Top,
+            Height = 24,
+            ForeColor = Color.FromArgb(148, 163, 184),
+            Font = new Font("Segoe UI", 9f),
+            TextAlign = ContentAlignment.MiddleLeft
+        };
+        _log.Multiline = true;
+        _log.ScrollBars = ScrollBars.Vertical;
+        _log.ReadOnly = true;
+        _log.BackColor = Color.FromArgb(15, 23, 42);
+        _log.ForeColor = Color.FromArgb(226, 232, 240);
+        _log.Font = new Font("Consolas", 9f);
+        _log.WordWrap = true;
+        _log.BorderStyle = BorderStyle.FixedSingle;
+        _log.Dock = DockStyle.Fill;
+        _log.HideSelection = false;
+        logPanel.Controls.Add(_log);
+        logPanel.Controls.Add(logHeader);
+
+        // Dock order: Fill first in z-order terms — add Fill before Top so Top gets priority... 
+        // WinForms: last docked control gets preference for remaining space when using Fill.
+        // Correct order: add Fill last.
+        Controls.Add(logPanel);
+        Controls.Add(steps);
+        Controls.Add(bottomBar);
         Controls.Add(header);
 
-        Resize += (_, _) => PlaceLogArea();
+        FormClosing += (_, _) => SaveWindowBounds();
+        ResizeEnd += (_, _) => SaveWindowBounds();
         Shown += (_, _) =>
         {
-            PlaceLogArea();
+            RelayoutSteps();
             RefreshUiState();
             AppendLog("Arrange your windows, then follow steps 1 → 2 → 3.");
         };
+    }
+
+    private sealed class UiState
+    {
+        public int X { get; set; }
+        public int Y { get; set; }
+        public int Width { get; set; }
+        public int Height { get; set; }
+        public string WindowState { get; set; } = "Normal";
+        public bool AdvancedOpen { get; set; }
+    }
+
+    private void RestoreWindowBounds()
+    {
+        try
+        {
+            if (!File.Exists(UiStatePath)) return;
+            var state = JsonSerializer.Deserialize<UiState>(File.ReadAllText(UiStatePath));
+            if (state is null || state.Width < MinimumSize.Width || state.Height < MinimumSize.Height)
+                return;
+
+            var bounds = new Rectangle(state.X, state.Y, state.Width, state.Height);
+            if (!bounds.IntersectsWith(SystemInformation.VirtualScreen))
+            {
+                StartPosition = FormStartPosition.CenterScreen;
+                return;
+            }
+
+            StartPosition = FormStartPosition.Manual;
+            Bounds = bounds;
+            if (Enum.TryParse<FormWindowState>(state.WindowState, out var ws) &&
+                ws is FormWindowState.Normal or FormWindowState.Maximized)
+            {
+                WindowState = ws;
+            }
+
+            _advancedOpen = state.AdvancedOpen;
+        }
+        catch
+        {
+            StartPosition = FormStartPosition.CenterScreen;
+        }
+    }
+
+    private void SaveWindowBounds()
+    {
+        try
+        {
+            var r = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
+            var state = new UiState
+            {
+                X = r.X,
+                Y = r.Y,
+                Width = r.Width,
+                Height = r.Height,
+                WindowState = WindowState == FormWindowState.Minimized ? "Normal" : WindowState.ToString(),
+                AdvancedOpen = _advancedOpen
+            };
+            File.WriteAllText(UiStatePath, JsonSerializer.Serialize(state, new JsonSerializerOptions { WriteIndented = true }));
+        }
+        catch
+        {
+            // ignore persistence errors
+        }
     }
 
     private static Label SectionLabel(string text, int x, int y) => new()
@@ -293,8 +407,8 @@ public sealed class MainForm : Form
 
         var logonText = logon ? "sign-in restore ON" : "sign-in restore off";
         _statusLine.Text = disabled
-            ? $"Stopped  ·  {rules} saved window(s)  ·  {logonText}"
-            : $"{rules} window(s) saved  ·  {logonText}  ·  {DateTime.Now:t}";
+            ? $"  Stopped  ·  {rules} saved window(s)  ·  {logonText}"
+            : $"  {rules} window(s) saved  ·  {logonText}  ·  {DateTime.Now:t}";
         _statusLine.ForeColor = disabled ? Color.FromArgb(252, 165, 165) : Color.FromArgb(148, 163, 184);
     }
 
@@ -353,10 +467,22 @@ public sealed class MainForm : Form
         }
     }
 
+    private const int MaxLogLines = 500;
+
     private void AppendLog(string line)
     {
         var stamp = DateTime.Now.ToString("HH:mm:ss");
         _log.AppendText($"[{stamp}] {line}{Environment.NewLine}");
+
+        // Cap history so the log doesn't grow forever
+        var lines = _log.Lines;
+        if (lines.Length > MaxLogLines)
+        {
+            _log.Lines = lines.Skip(lines.Length - MaxLogLines).ToArray();
+        }
+
+        _log.SelectionStart = _log.TextLength;
+        _log.ScrollToCaret();
     }
 
     private async Task<int> RunScriptAsync(string scriptName, params string[] extraArgs)

@@ -2,7 +2,7 @@
 
 Save and restore window positions across Windows virtual desktops — with an optional restore at sign-in.
 
-Works on Windows 10/11 with [PowerShell 7](https://aka.ms/powershell). Blank starter pack: no personal apps or paths.
+Works on Windows 10/11 **x64** with [PowerShell 7](https://aka.ms/powershell). The GUI installer is **self-contained** (bundles .NET — no separate Desktop Runtime install). Blank starter pack: no personal apps or paths.
 
 ## Install (recommended)
 
@@ -11,6 +11,8 @@ Works on Windows 10/11 with [PowerShell 7](https://aka.ms/powershell). Blank sta
 3. Open **Start Menu → Window Layout** (always created). Check **Create a desktop shortcut** on the tasks page if you want one.
 
 The wizard can also install the [VirtualDesktop](https://github.com/MScholtes/PSVirtualDesktop) PowerShell module and register a logon restore task.
+
+**Still required on the PC:** PowerShell 7 (`pwsh`) for Capture / Apply / logon scripts.
 
 ## Everyday use
 

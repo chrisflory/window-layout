@@ -8,11 +8,12 @@
     <ApplicationIcon>..\..\installer\assets\app.ico</ApplicationIcon>
     <AssemblyName>WindowLayout</AssemblyName>
     <RootNamespace>WindowLayout.Gui</RootNamespace>
-    <Version>1.0.3</Version>
+    <Version>1.1.0</Version>
     <Product>Window Layout</Product>
     <PublishSingleFile>true</PublishSingleFile>
-    <SelfContained>false</SelfContained>
+    <SelfContained>true</SelfContained>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
   </PropertyGroup>
 </Project>
