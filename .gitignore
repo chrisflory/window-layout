@@ -1,0 +1,21 @@
+# Build outputs
+**/bin/
+**/obj/
+dist/gui/
+dist/*.exe
+*.user
+.vs/
+
+# Local published copies (ship via GitHub Releases)
+/Window Layout.exe
+/WindowLayout.exe
+
+# Captured personal layouts (never commit real captures)
+# Keep the blank starter; ignore backups
+window-layout.rules.json.bak
+DISABLE-LAYOUT
+
+# OS junk
+Thumbs.db
+Desktop.ini
+.DS_Store

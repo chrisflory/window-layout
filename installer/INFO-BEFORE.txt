@@ -1,0 +1,17 @@
+Window Layout
+=============
+
+This installer sets up tools that save and restore window positions across
+Windows virtual desktops (similar to KDE window rules).
+
+You will need:
+  • Windows 10 or 11
+  • PowerShell 7 (pwsh) — install from https://aka.ms/powershell if missing
+
+After setup:
+  1. Create and name your virtual desktops (Win+Tab)
+  2. Arrange your apps
+  3. Start Menu → Window Layout → Capture layout
+  4. Test with Apply layout
+
+Optional: enable "Restore at logon" on the tasks page of this wizard.

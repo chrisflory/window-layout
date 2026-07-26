@@ -1,0 +1,8 @@
+# Create this file (no extension required) to prevent apply-window-layout.ps1
+# from doing anything — useful if a logon restore misbehaves.
+#
+#   New-Item DISABLE-LAYOUT -ItemType File
+#
+# Delete the file to allow apply / logon task to run again.
+#
+# Rename this example to DISABLE-LAYOUT (no .example) to activate.
