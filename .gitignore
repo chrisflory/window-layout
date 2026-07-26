@@ -2,6 +2,8 @@
 **/bin/
 **/obj/
 dist/gui/
+dist/publish/
+dist/releases/
 dist/*.exe
 *.user
 .vs/
@@ -9,6 +11,11 @@ dist/*.exe
 # Local published copies (ship via GitHub Releases)
 /Window Layout.exe
 /WindowLayout.exe
+
+# Icon rebuild scratch
+installer/assets/_setup-icons/
+installer/assets/_preview/
+installer/assets/app-256-check.png
 
 # Captured personal layouts (never commit real captures)
 # Keep the blank starter; ignore backups

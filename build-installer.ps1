@@ -1,35 +1,47 @@
 #Requires -Version 7
-# Publish GUI + rebuild WindowLayoutSetup.exe (requires .NET 8 SDK + Inno Setup 6)
+<#
+.SYNOPSIS
+  Publish the self-contained GUI and compile WindowLayoutSetup.exe (Inno Setup).
+#>
 $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
-$guiProj = Join-Path $root 'gui\WindowLayout.Gui\WindowLayout.Gui.csproj'
+$proj = Join-Path $root 'gui\WindowLayout.Gui\WindowLayout.Gui.csproj'
 $guiOut = Join-Path $root 'dist\gui'
+$iss = Join-Path $root 'installer\WindowLayout.iss'
 
-Write-Host 'Publishing Window Layout GUI...'
-dotnet publish $guiProj -c Release -o $guiOut --nologo
-if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed: $LASTEXITCODE" }
+[xml]$csproj = Get-Content -LiteralPath $proj
+$version = $csproj.Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
+if (-not $version) { throw 'Could not read <Version> from csproj' }
 
-$built = Join-Path $guiOut 'WindowLayout.exe'
-$named = Join-Path $guiOut 'Window Layout.exe'
-if (-not (Test-Path $built)) { throw "Expected publish output missing: $built" }
-Copy-Item -Force $built $named
-# Also drop a copy next to kit scripts for local testing
-Copy-Item -Force $named (Join-Path $root 'Window Layout.exe')
-Copy-Item -Force $named (Join-Path (Split-Path $root -Parent) 'Window Layout.exe') -ErrorAction SilentlyContinue
+Write-Host "=== Window Layout $version (Inno Setup) ===" -ForegroundColor Cyan
 
 $iscc = @(
   "$env:LocalAppData\Programs\Inno Setup 6\ISCC.exe",
   'C:\Program Files (x86)\Inno Setup 6\ISCC.exe',
   'C:\Program Files\Inno Setup 6\ISCC.exe'
 ) | Where-Object { Test-Path $_ } | Select-Object -First 1
-if (-not $iscc) { throw 'Inno Setup 6 ISCC.exe not found. Install: winget install JRSoftware.InnoSetup' }
+if (-not $iscc) {
+  throw 'Inno Setup 6 ISCC.exe not found. Install: winget install JRSoftware.InnoSetup'
+}
 
-$iss = Join-Path $root 'installer\WindowLayout.iss'
+if (Test-Path $guiOut) { Remove-Item -Recurse -Force $guiOut }
+New-Item -ItemType Directory -Force -Path $guiOut | Out-Null
+
+Write-Host 'Publishing self-contained win-x64 single-file GUI...'
+dotnet publish $proj -c Release -o $guiOut --nologo
+if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed: $LASTEXITCODE" }
+
+$exe = Join-Path $guiOut 'WindowLayout.exe'
+if (-not (Test-Path -LiteralPath $exe)) { throw "Missing $exe after publish" }
+
 Write-Host "Compiling installer with $iscc ..."
 & $iscc $iss
 if ($LASTEXITCODE -ne 0) { throw "ISCC failed: $LASTEXITCODE" }
 
 $setup = Join-Path $root 'dist\WindowLayoutSetup.exe'
+if (-not (Test-Path -LiteralPath $setup)) { throw "Missing $setup after compile" }
+
+Copy-Item -Force $setup (Join-Path (Split-Path $root -Parent) 'WindowLayoutSetup.exe') -ErrorAction SilentlyContinue
+
 Get-Item $setup | Format-List FullName, Length, LastWriteTime
-Copy-Item -Force $setup (Join-Path (Split-Path $root -Parent) 'WindowLayoutSetup.exe')
-Write-Host 'Done.'
+Write-Host 'Done.' -ForegroundColor Green

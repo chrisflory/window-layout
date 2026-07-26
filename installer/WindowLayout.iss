@@ -2,10 +2,10 @@
 ; Build: run ..\build-installer.ps1 (publishes GUI then compiles)
 
 #define MyAppName "Window Layout"
-#define MyAppVersion "1.1.1"
+#define MyAppVersion "2.0.0"
 #define MyAppPublisher "chrisflory"
 #define MyAppURL "https://github.com/chrisflory/window-layout"
-#define MyAppExeName "Window Layout.exe"
+#define MyAppExeName "WindowLayout.exe"
 
 [Setup]
 AppId={{A8F3C2E1-9B4D-4F6A-8E2C-1D7B5A9F0E33}
@@ -18,14 +18,17 @@ DefaultDirName={localappdata}\Programs\WindowLayout
 DefaultGroupName=Window Layout Tools
 DisableProgramGroupPage=yes
 AllowNoIcons=no
+; Per-user only — skip the modern "Install for me / all users" chooser
 PrivilegesRequired=lowest
-PrivilegesRequiredOverridesAllowed=dialog
 OutputDir=..\dist
 OutputBaseFilename=WindowLayoutSetup
 SetupIconFile=assets\app.ico
 Compression=lzma2
 SolidCompression=yes
-WizardStyle=modern
+; Classic Next/Next wizard with left sidebar (like GNS3/NSIS), not WizardStyle=modern
+WizardStyle=classic
+WizardImageFile=compiler:WizClassicImage-IS.bmp
+WizardSmallImageFile=compiler:WizClassicSmallImage-IS.bmp
 UninstallDisplayName={#MyAppName}
 UninstallDisplayIcon={app}\{#MyAppExeName}
 InfoBeforeFile=INFO-BEFORE.txt
@@ -34,7 +37,6 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 CloseApplications=no
 RestartIfNeededByRun=no
-; Always refresh Start Menu / desktop icons on upgrade
 ChangesAssociations=no
 
 [Languages]
@@ -66,17 +68,11 @@ Source: "launchers\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs
 Source: "assets\app.ico"; DestDir: "{app}\assets"; Flags: ignoreversion
 
 [Icons]
-; Single top-level app entry (must NOT share a name with a Start Menu folder,
-; or Windows All-apps shows a folder with no "Pin to Start")
-Name: "{userprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; IconFilename: "{app}\assets\app.ico"; Comment: "Save and restore window layouts"; AppUserModelID: "chrisflory.WindowLayout"
-; Helpers in a differently named folder
-Name: "{userprograms}\Window Layout Tools\Capture layout"; Filename: "{app}\Capture Layout.cmd"; WorkingDir: "{app}"; IconFilename: "{app}\assets\app.ico"; Comment: "Save current window positions"
-Name: "{userprograms}\Window Layout Tools\Apply layout"; Filename: "{app}\Apply Layout.cmd"; WorkingDir: "{app}"; IconFilename: "{app}\assets\app.ico"; Comment: "Restore saved window layout"
-Name: "{userprograms}\Window Layout Tools\List windows"; Filename: "{app}\List Windows.cmd"; WorkingDir: "{app}"; IconFilename: "{app}\assets\app.ico"; Comment: "Show open windows and desktops"
-Name: "{userprograms}\Window Layout Tools\Open install folder"; Filename: "{app}"; IconFilename: "{app}\assets\app.ico"
-Name: "{userprograms}\Window Layout Tools\Uninstall {#MyAppName}"; Filename: "{uninstallexe}"
+; One top-level app entry only (no helper folder — cluttered All apps / confused pinning).
+; Do not set AppUserModelID here — it makes Start treat the app as an AUMID identity and drops Pin to Start.
+Name: "{userprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; IconFilename: "{app}\assets\app.ico"; Comment: "Save and restore window layouts"
 ; Optional desktop shortcut
-Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; IconFilename: "{app}\assets\app.ico"; Comment: "Save and restore window layouts"; Tasks: desktopicon; AppUserModelID: "chrisflory.WindowLayout"
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; IconFilename: "{app}\assets\app.ico"; Comment: "Save and restore window layouts"; Tasks: desktopicon
 
 [Registry]
 ; Helps Win+R find the app as "win64" or "WindowLayout"

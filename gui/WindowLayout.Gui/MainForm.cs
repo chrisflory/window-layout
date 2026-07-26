@@ -16,6 +16,9 @@ public sealed class MainForm : Form
     private readonly Panel _advancedPanel = new();
     private bool _busy;
     private bool _advancedOpen;
+    private bool _firstRunPending;
+
+    private const string GitHubRepoUrl = "https://github.com/chrisflory/window-layout";
 
     private string AppDir => AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
     private string RulesPath => Path.Combine(AppDir, "window-layout.rules.json");
@@ -35,25 +38,47 @@ public sealed class MainForm : Form
         Padding = new Padding(0);
         RestoreWindowBounds();
 
+        var appIcon = LoadAppIcon();
+        if (appIcon is not null)
+        {
+            Icon = appIcon;
+            ShowIcon = true;
+        }
+
         var header = new Panel
         {
             Dock = DockStyle.Top,
-            Height = 88,
+            Height = 96,
             BackColor = Color.FromArgb(15, 23, 42)
         };
+
+        if (appIcon is not null)
+        {
+            using var small = new Icon(appIcon, 48, 48);
+            var logo = new PictureBox
+            {
+                Image = small.ToBitmap(),
+                SizeMode = PictureBoxSizeMode.Zoom,
+                Size = new Size(56, 56),
+                Location = new Point(24, 20),
+                BackColor = Color.Transparent
+            };
+            header.Controls.Add(logo);
+        }
+
         header.Controls.Add(new Label
         {
             Text = "Window Layout",
             Font = new Font("Segoe UI Semibold", 18f),
             AutoSize = true,
-            Location = new Point(28, 16),
+            Location = new Point(appIcon is null ? 28 : 92, 20),
             ForeColor = Color.White
         });
         header.Controls.Add(new Label
         {
             Text = "Save where your windows live, then restore them — including at sign-in.",
             AutoSize = true,
-            Location = new Point(30, 52),
+            Location = new Point(appIcon is null ? 30 : 94, 56),
             ForeColor = Color.FromArgb(148, 163, 184)
         });
 
@@ -151,7 +176,7 @@ public sealed class MainForm : Form
         };
 
         _advancedPanel.Location = new Point(28, 296);
-        _advancedPanel.Size = new Size(680, 96);
+        _advancedPanel.Size = new Size(680, 148);
         _advancedPanel.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
         _advancedPanel.Visible = false;
 
@@ -160,7 +185,9 @@ public sealed class MainForm : Form
         var btnFolder = SmallButton("Open files folder", 460, 0, Color.FromArgb(71, 85, 105));
         var btnKill = SmallButton("Emergency stop", 0, 48, Color.FromArgb(185, 28, 28));
         var btnClear = SmallButton("Clear emergency stop", 230, 48, Color.FromArgb(71, 85, 105));
-        var btnRepair = SmallButton("Repair module", 460, 48, Color.FromArgb(71, 85, 105));
+        var btnRepair = SmallButton("Repair / setup module", 460, 48, Color.FromArgb(71, 85, 105));
+        var btnPs7 = SmallButton("Install PowerShell 7", 0, 96, Color.FromArgb(30, 64, 175));
+        var btnAbout = SmallButton("About / version", 230, 96, Color.FromArgb(71, 85, 105));
 
         btnOff.Click += async (_, _) =>
         {
@@ -183,8 +210,20 @@ public sealed class MainForm : Form
             RefreshUiState();
         };
         btnRepair.Click += async (_, _) => await RunScriptAsync("setup.ps1");
+        btnPs7.Click += async (_, _) => await RunScriptAsync("install-powershell7.ps1");
+        btnAbout.Click += (_, _) =>
+        {
+            var ver = typeof(MainForm).Assembly.GetName().Version?.ToString(3) ?? "?";
+            MessageBox.Show(this,
+                $"Window Layout {ver}\n\nInstall folder:\n{AppDir}\n\n{GitHubRepoUrl}",
+                "About Window Layout", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        };
 
-        _advancedPanel.Controls.AddRange([btnOff, btnList, btnFolder, btnKill, btnClear, btnRepair]);
+        _advancedPanel.Controls.AddRange([
+            btnOff, btnList, btnFolder,
+            btnKill, btnClear, btnRepair,
+            btnPs7, btnAbout
+        ]);
 
         void RelayoutSteps()
         {
@@ -192,7 +231,7 @@ public sealed class MainForm : Form
             _nextHint.Width = w;
             _btn1.Width = _btn2.Width = _btn3.Width = w;
             _advancedPanel.Width = w;
-            steps.Height = _advancedOpen ? 420 : 300;
+            steps.Height = _advancedOpen ? 470 : 300;
         }
 
         moreToggle.LinkClicked += (_, _) =>
@@ -254,11 +293,12 @@ public sealed class MainForm : Form
 
         FormClosing += (_, _) => SaveWindowBounds();
         ResizeEnd += (_, _) => SaveWindowBounds();
-        Shown += (_, _) =>
+        Shown += async (_, _) =>
         {
             RelayoutSteps();
             RefreshUiState();
             AppendLog("Arrange your windows, then follow steps 1 → 2 → 3.");
+            await OfferFirstRunSetupAsync();
         };
     }
 
@@ -270,16 +310,24 @@ public sealed class MainForm : Form
         public int Height { get; set; }
         public string WindowState { get; set; } = "Normal";
         public bool AdvancedOpen { get; set; }
+        public bool FirstRunDone { get; set; }
     }
 
     private void RestoreWindowBounds()
     {
         try
         {
-            if (!File.Exists(UiStatePath)) return;
+            if (!File.Exists(UiStatePath))
+            {
+                _firstRunPending = true;
+                return;
+            }
             var state = JsonSerializer.Deserialize<UiState>(File.ReadAllText(UiStatePath));
             if (state is null || state.Width < MinimumSize.Width || state.Height < MinimumSize.Height)
+            {
+                _firstRunPending = state?.FirstRunDone != true;
                 return;
+            }
 
             var bounds = new Rectangle(state.X, state.Y, state.Width, state.Height);
             if (!bounds.IntersectsWith(SystemInformation.VirtualScreen))
@@ -297,10 +345,12 @@ public sealed class MainForm : Form
             }
 
             _advancedOpen = state.AdvancedOpen;
+            _firstRunPending = !state.FirstRunDone;
         }
         catch
         {
             StartPosition = FormStartPosition.CenterScreen;
+            _firstRunPending = true;
         }
     }
 
@@ -309,6 +359,17 @@ public sealed class MainForm : Form
         try
         {
             var r = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
+            var prevDone = false;
+            try
+            {
+                if (File.Exists(UiStatePath))
+                {
+                    var prev = JsonSerializer.Deserialize<UiState>(File.ReadAllText(UiStatePath));
+                    prevDone = prev?.FirstRunDone == true;
+                }
+            }
+            catch { /* ignore */ }
+
             var state = new UiState
             {
                 X = r.X,
@@ -316,7 +377,8 @@ public sealed class MainForm : Form
                 Width = r.Width,
                 Height = r.Height,
                 WindowState = WindowState == FormWindowState.Minimized ? "Normal" : WindowState.ToString(),
-                AdvancedOpen = _advancedOpen
+                AdvancedOpen = _advancedOpen,
+                FirstRunDone = prevDone || !_firstRunPending
             };
             File.WriteAllText(UiStatePath, JsonSerializer.Serialize(state, new JsonSerializerOptions { WriteIndented = true }));
         }
@@ -324,6 +386,39 @@ public sealed class MainForm : Form
         {
             // ignore persistence errors
         }
+    }
+
+    private void MarkFirstRunDone()
+    {
+        _firstRunPending = false;
+        SaveWindowBounds();
+    }
+
+    private async Task OfferFirstRunSetupAsync()
+    {
+        if (!_firstRunPending) return;
+
+        var result = MessageBox.Show(this,
+            "Welcome to Window Layout.\n\n" +
+            "Install the VirtualDesktop PowerShell module now? (needed for Capture / Apply; requires internet)\n\n" +
+            "You can also do this later under More options → Repair / setup module.",
+            "Window Layout setup",
+            MessageBoxButtons.YesNo,
+            MessageBoxIcon.Question);
+
+        if (result == DialogResult.Yes)
+        {
+            var ps7 = MessageBox.Show(this,
+                "Also install PowerShell 7 via winget? (optional — Windows PowerShell 5.1 works too)",
+                "PowerShell 7",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question);
+            if (ps7 == DialogResult.Yes)
+                await RunScriptAsync("install-powershell7.ps1");
+            await RunScriptAsync("setup.ps1");
+        }
+
+        MarkFirstRunDone();
     }
 
     private static Label SectionLabel(string text, int x, int y) => new()
@@ -559,6 +654,38 @@ public sealed class MainForm : Form
             UseWaitCursor = false;
             RefreshUiState();
         }
+    }
+
+    private Icon? LoadAppIcon()
+    {
+        // Prefer multi-resolution icon (taskbar needs 16/24/32, not only 256)
+        try
+        {
+            var asm = typeof(MainForm).Assembly;
+            using var stream = asm.GetManifestResourceStream("WindowLayout.Gui.app.ico");
+            if (stream is not null)
+            {
+                using var ms = new MemoryStream();
+                stream.CopyTo(ms);
+                ms.Position = 0;
+                using var temp = new Icon(ms);
+                return (Icon)temp.Clone();
+            }
+        }
+        catch { /* ignore */ }
+
+        try
+        {
+            var path = Path.Combine(AppDir, "assets", "app.ico");
+            if (File.Exists(path))
+            {
+                using var temp = new Icon(path);
+                return (Icon)temp.Clone();
+            }
+        }
+        catch { /* ignore */ }
+
+        return null;
     }
 
     private static string? FindPowerShell()

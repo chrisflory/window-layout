@@ -1,24 +1,17 @@
 Window Layout
 =============
 
-This installer sets up tools that save and restore window positions across
-Windows virtual desktops (similar to KDE window rules).
+Save and restore window positions across Windows virtual desktops —
+including an optional restore when you sign in.
 
-You will need:
+Requirements
+------------
   • Windows 10 or 11 (64-bit)
-  • PowerShell — Windows PowerShell 5.1 (built into Windows) works
-  • PowerShell 7 is optional but recommended (checkbox on the next pages;
-    installs via winget when selected)
+  • PowerShell 5.1 (built-in) or PowerShell 7 (optional)
 
-The app itself is self-contained (no separate .NET install required).
-
-What gets installed:
-  • App under %LOCALAPPDATA%\Programs\WindowLayout
-  • Start Menu: Window Layout (always)
-  • Optional desktop shortcut (off by default)
-  • Optional PowerShell 7, VirtualDesktop module, and logon restore
-
-After setup:
-  1. Name your virtual desktops (Win+Tab)
-  2. Arrange your apps
-  3. Start Menu → Window Layout → follow steps 1 → 2 → 3
+After setup
+-----------
+  1. Open Start Menu → Window Layout
+  2. Arrange your windows how you like them
+  3. Follow steps 1 → 2 → 3 in the app
+     (save layout → test restore → optional sign-in restore)

@@ -1,19 +1,22 @@
-<Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup>
-    <OutputType>WinExe</OutputType>
-    <TargetFramework>net8.0-windows</TargetFramework>
-    <Nullable>enable</Nullable>
-    <UseWindowsForms>true</UseWindowsForms>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <ApplicationIcon>..\..\installer\assets\app.ico</ApplicationIcon>
-    <AssemblyName>WindowLayout</AssemblyName>
-    <RootNamespace>WindowLayout.Gui</RootNamespace>
-    <Version>1.1.1</Version>
-    <Product>Window Layout</Product>
-    <PublishSingleFile>true</PublishSingleFile>
-    <SelfContained>true</SelfContained>
-    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
-    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
-    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
-  </PropertyGroup>
-</Project>
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <ApplicationIcon>..\..\installer\assets\app.ico</ApplicationIcon>
+    <AssemblyName>WindowLayout</AssemblyName>
+    <RootNamespace>WindowLayout.Gui</RootNamespace>
+    <Version>2.0.0</Version>
+    <Product>Window Layout</Product>
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>true</SelfContained>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\installer\assets\app.ico" LogicalName="WindowLayout.Gui.app.ico" />
+  </ItemGroup>
+</Project>
