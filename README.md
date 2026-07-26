@@ -8,7 +8,7 @@ Works on Windows 10/11 with [PowerShell 7](https://aka.ms/powershell). Blank sta
 
 1. Download **`WindowLayoutSetup.exe`** from the [latest Release](https://github.com/chrisflory/window-layout/releases/latest).
 2. Run the installer (no admin required; installs under `%LOCALAPPDATA%\Programs\WindowLayout`).
-3. Open **Start Menu → Window Layout**.
+3. Open **Start Menu → Window Layout** (always created). Check **Create a desktop shortcut** on the tasks page if you want one.
 
 The wizard can also install the [VirtualDesktop](https://github.com/MScholtes/PSVirtualDesktop) PowerShell module and register a logon restore task.
 

@@ -8,10 +8,13 @@ You will need:
   • Windows 10 or 11
   • PowerShell 7 (pwsh) — install from https://aka.ms/powershell if missing
 
-After setup:
-  1. Create and name your virtual desktops (Win+Tab)
-  2. Arrange your apps
-  3. Start Menu → Window Layout → Capture layout
-  4. Test with Apply layout
+What gets installed:
+  • App under %LOCALAPPDATA%\Programs\WindowLayout
+  • Start Menu folder: Window Layout (always)
+  • Optional desktop shortcut (checkbox on the next pages)
+  • Optional VirtualDesktop module + logon restore
 
-Optional: enable "Restore at logon" on the tasks page of this wizard.
+After setup:
+  1. Name your virtual desktops (Win+Tab)
+  2. Arrange your apps
+  3. Start Menu → Window Layout → follow steps 1 → 2 → 3
