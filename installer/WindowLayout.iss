@@ -2,7 +2,7 @@
 ; Build: run ..\build-installer.ps1 (publishes GUI then compiles)
 
 #define MyAppName "Window Layout"
-#define MyAppVersion "1.0.1"
+#define MyAppVersion "1.0.2"
 #define MyAppPublisher "chrisflory"
 #define MyAppURL "https://github.com/chrisflory/window-layout"
 #define MyAppExeName "Window Layout.exe"
@@ -15,7 +15,7 @@ AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}
 DefaultDirName={localappdata}\Programs\WindowLayout
-DefaultGroupName={#MyAppName}
+DefaultGroupName=Window Layout Tools
 DisableProgramGroupPage=yes
 AllowNoIcons=no
 PrivilegesRequired=lowest
@@ -64,15 +64,24 @@ Source: "launchers\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs
 Source: "assets\*"; DestDir: "{app}\assets"; Flags: ignoreversion recursesubdirs
 
 [Icons]
-; Always created in Start Menu → Window Layout
-Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; IconFilename: "{app}\assets\app.ico"; Comment: "Save and restore window layouts"
-Name: "{group}\Capture layout"; Filename: "{app}\Capture Layout.cmd"; WorkingDir: "{app}"; IconFilename: "{app}\assets\app.ico"; Comment: "Save current window positions"
-Name: "{group}\Apply layout"; Filename: "{app}\Apply Layout.cmd"; WorkingDir: "{app}"; IconFilename: "{app}\assets\app.ico"; Comment: "Restore saved window layout"
-Name: "{group}\List windows"; Filename: "{app}\List Windows.cmd"; WorkingDir: "{app}"; IconFilename: "{app}\assets\app.ico"; Comment: "Show open windows and desktops"
-Name: "{group}\Open install folder"; Filename: "{app}"; IconFilename: "{app}\assets\app.ico"
-Name: "{group}\Uninstall {#MyAppName}"; Filename: "{uninstallexe}"
-; Optional — only if "Create a desktop shortcut" is checked
-Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; IconFilename: "{app}\assets\app.ico"; Comment: "Save and restore window layouts"; Tasks: desktopicon
+; Single top-level app entry (must NOT share a name with a Start Menu folder,
+; or Windows All-apps shows a folder with no "Pin to Start")
+Name: "{userprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; IconFilename: "{app}\assets\app.ico"; Comment: "Save and restore window layouts"; AppUserModelID: "chrisflory.WindowLayout"
+; Helpers in a differently named folder
+Name: "{userprograms}\Window Layout Tools\Capture layout"; Filename: "{app}\Capture Layout.cmd"; WorkingDir: "{app}"; IconFilename: "{app}\assets\app.ico"; Comment: "Save current window positions"
+Name: "{userprograms}\Window Layout Tools\Apply layout"; Filename: "{app}\Apply Layout.cmd"; WorkingDir: "{app}"; IconFilename: "{app}\assets\app.ico"; Comment: "Restore saved window layout"
+Name: "{userprograms}\Window Layout Tools\List windows"; Filename: "{app}\List Windows.cmd"; WorkingDir: "{app}"; IconFilename: "{app}\assets\app.ico"; Comment: "Show open windows and desktops"
+Name: "{userprograms}\Window Layout Tools\Open install folder"; Filename: "{app}"; IconFilename: "{app}\assets\app.ico"
+Name: "{userprograms}\Window Layout Tools\Uninstall {#MyAppName}"; Filename: "{uninstallexe}"
+; Optional desktop shortcut
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; IconFilename: "{app}\assets\app.ico"; Comment: "Save and restore window layouts"; Tasks: desktopicon; AppUserModelID: "chrisflory.WindowLayout"
+
+[Registry]
+; Helps Win+R find the app as "win64" or "WindowLayout"
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\App Paths\win64.exe"; ValueType: string; ValueName: ""; ValueData: "{app}\{#MyAppExeName}"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\App Paths\win64.exe"; ValueType: string; ValueName: "Path"; ValueData: "{app}"
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\App Paths\WindowLayout.exe"; ValueType: string; ValueName: ""; ValueData: "{app}\{#MyAppExeName}"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\App Paths\WindowLayout.exe"; ValueType: string; ValueName: "Path"; ValueData: "{app}"
 
 [Run]
 Filename: "{app}\run-pwsh.cmd"; Parameters: "-File ""{app}\setup.ps1"""; StatusMsg: "Installing VirtualDesktop module..."; Flags: runhidden waituntilterminated; Tasks: installmodule
