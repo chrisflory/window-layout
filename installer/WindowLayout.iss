@@ -2,7 +2,7 @@
 ; Build: run ..\build-installer.ps1 (publishes GUI then compiles)
 
 #define MyAppName "Window Layout"
-#define MyAppVersion "1.0.2"
+#define MyAppVersion "1.0.3"
 #define MyAppPublisher "chrisflory"
 #define MyAppURL "https://github.com/chrisflory/window-layout"
 #define MyAppExeName "Window Layout.exe"
@@ -61,7 +61,7 @@ Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\THIRD-PARTY.md"; DestDir: "{app}"; Flags: ignoreversion
 ; Optional CLI launchers
 Source: "launchers\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs
-Source: "assets\*"; DestDir: "{app}\assets"; Flags: ignoreversion recursesubdirs
+Source: "assets\app.ico"; DestDir: "{app}\assets"; Flags: ignoreversion
 
 [Icons]
 ; Single top-level app entry (must NOT share a name with a Start Menu folder,
