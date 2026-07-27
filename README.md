@@ -42,6 +42,7 @@ Requires .NET 8 SDK and [Inno Setup 6](https://jrsoftware.org/isinfo.php) (`wing
 | `apply-window-layout.ps1` | Launch + place per rules |
 | `list-window-layout.ps1` | Read-only inventory |
 | `register-logon-task.ps1` | Install/remove at-logon task |
+| `run-apply-hidden.vbs` | Silent wscript launcher (no console / Terminal flash) |
 | `gui/` | WinForms control panel source |
 
 ```powershell

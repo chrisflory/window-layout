@@ -3,6 +3,11 @@
 .SYNOPSIS
   Register (or remove) a logon task that runs apply-window-layout.ps1
 
+.NOTES
+  The task launches run-apply-hidden.vbs via wscript.exe (window style 0).
+  Direct pwsh/powershell with -WindowStyle Hidden still shows a console or
+  Windows Terminal window when Terminal is the default console host.
+
 .EXAMPLE
   powershell -File register-logon-task.ps1
   pwsh -File register-logon-task.ps1 -Unregister
@@ -15,8 +20,12 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $ApplyScript = Join-Path $PSScriptRoot 'apply-window-layout.ps1'
+$HiddenVbs = Join-Path $PSScriptRoot 'run-apply-hidden.vbs'
 if (-not (Test-Path -LiteralPath $ApplyScript)) {
   throw "Missing apply script: $ApplyScript"
+}
+if (-not (Test-Path -LiteralPath $HiddenVbs)) {
+  throw "Missing silent launcher: $HiddenVbs"
 }
 
 Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue
@@ -25,24 +34,14 @@ if ($Unregister) {
   return
 }
 
-function Get-LayoutPowerShell {
-  $candidates = @(
-    "$env:ProgramFiles\PowerShell\7\pwsh.exe",
-    "$env:LocalAppData\Microsoft\WindowsApps\pwsh.exe",
-    "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
-  )
-  foreach ($c in $candidates) {
-    if (Test-Path -LiteralPath $c) { return $c }
-  }
-  $cmd = Get-Command pwsh, powershell -ErrorAction SilentlyContinue | Select-Object -First 1
-  if ($cmd) { return $cmd.Source }
-  throw 'No PowerShell executable found.'
+$wscript = Join-Path $env:SystemRoot 'System32\wscript.exe'
+if (-not (Test-Path -LiteralPath $wscript)) {
+  throw "Missing wscript.exe: $wscript"
 }
 
-$psExe = Get-LayoutPowerShell
-# Minimal idle before apply; place/launch polls handle slow VM shell startup.
-$arg = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$ApplyScript`" -DelaySeconds 3"
-$action = New-ScheduledTaskAction -Execute $psExe -Argument $arg
+# //B = no script UI; //Nologo = no banner. VBS runs pwsh with SW_HIDE (style 0).
+$arg = "//B //Nologo `"$HiddenVbs`""
+$action = New-ScheduledTaskAction -Execute $wscript -Argument $arg
 $trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
 $trigger.Delay = 'PT2S'
 $settings = New-ScheduledTaskSettingsSet `
@@ -54,9 +53,9 @@ $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interac
 
 Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger `
   -Settings $settings -Principal $principal `
-  -Description 'Restore virtual-desktop window layout after logon' | Out-Null
+  -Description 'Restore virtual-desktop window layout after logon (silent)' | Out-Null
 
-Write-Host "Registered '$TaskName' (at logon +2s, apply delay 3s) for $env:USERNAME"
-Write-Host "Engine: $psExe"
+Write-Host "Registered '$TaskName' (at logon +2s, apply delay 3s, silent via wscript) for $env:USERNAME"
+Write-Host "Launcher: $wscript $arg"
 Write-Host "Apply script: $ApplyScript"
 Get-ScheduledTask -TaskName $TaskName | Select-Object TaskName, State

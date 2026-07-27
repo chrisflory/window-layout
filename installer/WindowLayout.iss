@@ -2,7 +2,7 @@
 ; Build: run ..\build-installer.ps1 (publishes GUI then compiles)
 
 #define MyAppName "Window Layout"
-#define MyAppVersion "2.0.11"
+#define MyAppVersion "2.0.12"
 #define MyAppPublisher "chrisflory"
 #define MyAppURL "https://github.com/chrisflory/window-layout"
 #define MyAppExeName "WindowLayout.exe"
@@ -55,6 +55,7 @@ Source: "..\apply-window-layout.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\capture-window-layout.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\list-window-layout.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\register-logon-task.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\run-apply-hidden.vbs"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\refresh-local-module.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\setup.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\uninstall-virtualdesktop.ps1"; DestDir: "{app}"; Flags: ignoreversion
