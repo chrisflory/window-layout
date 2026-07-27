@@ -2,6 +2,6 @@
   "version": 1,
   "capturedAt": null,
   "followDesktop": null,
-  "startupDelaySeconds": 25,
+  "startupDelaySeconds": 10,
   "rules": []
 }

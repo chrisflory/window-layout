@@ -72,7 +72,7 @@ if (-not (Test-Path -LiteralPath $rules)) {
     version = 1
     capturedAt = $null
     followDesktop = $null
-    startupDelaySeconds = 25
+    startupDelaySeconds = 10
     rules = @()
   } | ConvertTo-Json | Set-Content -LiteralPath $rules -Encoding utf8
   Write-Host "Created blank rules file: $rules"

@@ -75,7 +75,7 @@ for ($attempt = 1; $attempt -le 5; $attempt++) {
     break
   } catch {
     Write-Host "VirtualDesktop module not ready (attempt $attempt): $($_.Exception.Message)"
-    Start-Sleep -Seconds 10
+    Start-Sleep -Seconds 2
   }
 }
 if (-not $imported) { throw 'Could not load VirtualDesktop module after 5 attempts.' }
@@ -442,11 +442,12 @@ if (-not $SkipLaunch) {
 
     Write-Host "Switch -> $($rule.desktop); launching $($rule.process) $(if ($rule.args) { $rule.args } else { '' })..."
     Switch-Desktop -Desktop $desktopMap[$rule.desktop] -NoAnimation | Out-Null
-    Start-Sleep -Milliseconds 600
+    Start-Sleep -Milliseconds 300
     Start-RuleProcess -Rule $rule
   }
-  Write-Host "Waiting for launched apps to create windows..."
-  Start-Sleep -Seconds 10
+  # Windows appear asynchronously; Place pass polls — only a short settle here
+  Write-Host "Waiting briefly for launched apps to create windows..."
+  Start-Sleep -Seconds 3
 }
 
 # Place pass: match by title keywords when set, then geometry
@@ -454,14 +455,15 @@ Write-Host ""
 Write-Host "=== Place pass ==="
 foreach ($rule in $rules) {
   $procUp = @(Get-Process -Name $rule.process -ErrorAction SilentlyContinue).Count -gt 0
-  $timeout = if (-not $procUp) { 8 } elseif ($rule.launch) { 90 } else { 45 }
+  # Shorter waits when process is missing; launched apps poll in Wait-MatchingWindow
+  $timeout = if (-not $procUp) { 6 } elseif ($rule.launch) { 45 } else { 20 }
   [void](Place-RuleWindow -Rule $rule -DesktopObj $desktopMap[$rule.desktop] -UsedHwnds $usedHwnds -TimeoutSec $timeout)
 }
 
 # Final verification pass for anything still wrong (window recreations, late hwnds)
 Write-Host ""
 Write-Host "=== Verification pass ==="
-Start-Sleep -Seconds 3
+Start-Sleep -Seconds 1
 $usedHwnds.Clear()
 foreach ($rule in $rules) {
   $win = Select-BestWindow -ProcessName $rule.process -TitleMatch $rule.titleMatch `

@@ -30,7 +30,7 @@ Add-Type -AssemblyName System.Windows.Forms
 
 # Preserve tuning from an existing rules file (don't reset on re-capture)
 $prevFollow = $null
-$prevDelay = 20
+$prevDelay = 10
 if (Test-Path -LiteralPath $OutFile) {
   try {
     $prev = Get-Content -LiteralPath $OutFile -Raw | ConvertFrom-Json
