@@ -40,12 +40,11 @@ function Get-LayoutPowerShell {
 }
 
 $psExe = Get-LayoutPowerShell
-# Start sooner after logon; use a short apply delay (overrides rules startupDelaySeconds)
-# so restore does not sit idle for 20–25s waiting for a cold desktop.
-$arg = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$ApplyScript`" -DelaySeconds 8"
+# Minimal idle before apply; place/launch polls handle slow VM shell startup.
+$arg = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$ApplyScript`" -DelaySeconds 3"
 $action = New-ScheduledTaskAction -Execute $psExe -Argument $arg
 $trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
-$trigger.Delay = 'PT5S'
+$trigger.Delay = 'PT2S'
 $settings = New-ScheduledTaskSettingsSet `
   -AllowStartIfOnBatteries `
   -DontStopIfGoingOnBatteries `
@@ -57,7 +56,7 @@ Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger `
   -Settings $settings -Principal $principal `
   -Description 'Restore virtual-desktop window layout after logon' | Out-Null
 
-Write-Host "Registered '$TaskName' (at logon +5s, apply delay 8s) for $env:USERNAME"
+Write-Host "Registered '$TaskName' (at logon +2s, apply delay 3s) for $env:USERNAME"
 Write-Host "Engine: $psExe"
 Write-Host "Apply script: $ApplyScript"
 Get-ScheduledTask -TaskName $TaskName | Select-Object TaskName, State

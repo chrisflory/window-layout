@@ -49,6 +49,7 @@ if ($LogFile) {
 # Never launch / place these (shell chrome — not File Explorer folder windows or Task Manager)
 $NeverManage = [System.Collections.Generic.HashSet[string]]::new(
   [string[]]@(
+    'WindowLayout',
     'ApplicationFrameHost', 'ShellExperienceHost',
     'SearchHost', 'StartMenuExperienceHost', 'LockApp', 'TextInputHost',
     'SystemSettings', 'dwm', 'sihost', 'RuntimeBroker'
@@ -68,17 +69,17 @@ foreach ($localModulesPath in $localModules) {
   }
 }
 $imported = $false
-for ($attempt = 1; $attempt -le 5; $attempt++) {
+for ($attempt = 1; $attempt -le 3; $attempt++) {
   try {
     Import-Module VirtualDesktop -DisableNameChecking -ErrorAction Stop
     $imported = $true
     break
   } catch {
     Write-Host "VirtualDesktop module not ready (attempt $attempt): $($_.Exception.Message)"
-    Start-Sleep -Seconds 2
+    Start-Sleep -Milliseconds 800
   }
 }
-if (-not $imported) { throw 'Could not load VirtualDesktop module after 5 attempts.' }
+if (-not $imported) { throw 'Could not load VirtualDesktop module after 3 attempts.' }
 
 Add-Type -TypeDefinition @'
 using System;
@@ -154,16 +155,20 @@ function Test-TitlePatterns {
   return $false
 }
 
-function Get-MatchingWindows {
-  param(
-    [string]$ProcessName,
-    $TitleMatch
-  )
-  $procIds = [System.Collections.Generic.HashSet[uint32]]::new()
-  foreach ($p in @(Get-Process -Name $ProcessName -ErrorAction SilentlyContinue)) {
-    [void]$procIds.Add([uint32]$p.Id)
+# Cache EnumWindows results briefly — VMs pay heavily for repeated full scans
+$script:WinSnap = $null
+$script:WinSnapAt = [datetime]::MinValue
+
+function Invalidate-WindowSnapshot {
+  $script:WinSnap = $null
+  $script:WinSnapAt = [datetime]::MinValue
+}
+
+function Get-WindowSnapshot {
+  param([switch]$Force)
+  if (-not $Force -and $script:WinSnap -and (((Get-Date) - $script:WinSnapAt).TotalMilliseconds -lt 250)) {
+    return $script:WinSnap
   }
-  if ($procIds.Count -eq 0) { return @() }
 
   $hits = [System.Collections.Generic.List[object]]::new()
   $cb = [LayoutWin+EnumProc]{
@@ -171,14 +176,12 @@ function Get-MatchingWindows {
     if (-not [LayoutWin]::IsWindowVisible($hWnd)) { return $true }
     [uint32]$procId = 0
     [void][LayoutWin]::GetWindowThreadProcessId($hWnd, [ref]$procId)
-    if (-not $procIds.Contains($procId)) { return $true }
 
     $len = [LayoutWin]::GetWindowTextLength($hWnd)
     if ($len -le 0) { return $true }
     $sb = New-Object System.Text.StringBuilder ($len + 1)
     [void][LayoutWin]::GetWindowText($hWnd, $sb, $sb.Capacity)
     $title = $sb.ToString()
-    if (-not (Test-TitlePatterns -Title $title -TitleMatch $TitleMatch)) { return $true }
 
     $iconic = [LayoutWin]::IsIconic($hWnd)
     $r = New-Object LayoutWin+RECT
@@ -203,7 +206,28 @@ function Get-MatchingWindows {
     return $true
   }
   [void][LayoutWin]::EnumWindows($cb, [IntPtr]::Zero)
+  $script:WinSnap = $hits
+  $script:WinSnapAt = Get-Date
   return $hits
+}
+
+function Get-MatchingWindows {
+  param(
+    [string]$ProcessName,
+    $TitleMatch,
+    [switch]$ForceRefresh
+  )
+  $procIds = [System.Collections.Generic.HashSet[uint32]]::new()
+  foreach ($p in @(Get-Process -Name $ProcessName -ErrorAction SilentlyContinue)) {
+    [void]$procIds.Add([uint32]$p.Id)
+  }
+  if ($procIds.Count -eq 0) { return @() }
+
+  $snap = @(Get-WindowSnapshot -Force:$ForceRefresh)
+  return @($snap | Where-Object {
+    $procIds.Contains([uint32]$_.ProcId) -and
+    (Test-TitlePatterns -Title $_.Title -TitleMatch $TitleMatch)
+  })
 }
 
 function Select-BestWindow {
@@ -243,12 +267,25 @@ function Wait-MatchingWindow {
     [System.Collections.Generic.HashSet[long]]$UsedHwnds,
     [int]$TimeoutSec = 60
   )
-  $deadline = (Get-Date).AddSeconds($TimeoutSec)
+  $deadline = (Get-Date).AddSeconds([Math]::Max(0, $TimeoutSec))
+  $noProcSince = $null
+  $first = $true
   do {
-    $m = Select-BestWindow -ProcessName $ProcessName -TitleMatch $TitleMatch `
-      -TargetLeft $TargetLeft -TargetTop $TargetTop -UsedHwnds $UsedHwnds
-    if ($m) { return $m }
-    Start-Sleep -Milliseconds 400
+    if (-not $first) { Invalidate-WindowSnapshot }
+    $first = $false
+    $procUp = @(Get-Process -Name $ProcessName -ErrorAction SilentlyContinue).Count -gt 0
+    if (-not $procUp) {
+      if ($null -eq $noProcSince) { $noProcSince = Get-Date }
+      # Don't burn the full timeout if the process never appears (common on cold VM)
+      if (((Get-Date) - $noProcSince).TotalSeconds -ge 4) { return $null }
+    } else {
+      $noProcSince = $null
+      $m = Select-BestWindow -ProcessName $ProcessName -TitleMatch $TitleMatch `
+        -TargetLeft $TargetLeft -TargetTop $TargetTop -UsedHwnds $UsedHwnds
+      if ($m) { return $m }
+    }
+    if ($TimeoutSec -le 0) { break }
+    Start-Sleep -Milliseconds 200
   } while ((Get-Date) -lt $deadline)
   return $null
 }
@@ -349,16 +386,17 @@ function Place-RuleWindow {
   }
 
   Move-WindowToGeometry -Hwnd $win.Hwnd -Rule $Rule
+  Invalidate-WindowSnapshot
 
-  # Verify; retry move up to 3 times if still wrong
-  for ($i = 1; $i -le 3; $i++) {
+  # Verify; retry move up to 2 times if still wrong
+  for ($i = 1; $i -le 2; $i++) {
     $actual = Get-WindowDesktopName -Hwnd $win.Hwnd
     if ($actual -eq $Rule.desktop) {
       Write-Host "  OK hwnd=$($win.Hwnd) desktop=$actual"
       return $true
     }
     Write-Host "  Retry $i : reported desktop='$actual', want '$($Rule.desktop)'"
-    Start-Sleep -Milliseconds 500
+    Start-Sleep -Milliseconds 200
     try {
       Move-Window -Desktop $DesktopObj -Hwnd $win.Hwnd | Out-Null
     } catch {}
@@ -399,16 +437,17 @@ foreach ($d in ($rules.desktop | Select-Object -Unique)) {
 }
 
 $usedHwnds = [System.Collections.Generic.HashSet[long]]::new()
+$applyStarted = Get-Date
 
-# Launch pass: switch to EACH app's target desktop before starting it,
-# so first windows inherit the right desktop (critical for Brave/Chrome).
+# Launch pass: one Switch-Desktop per target desktop, then start that desktop's apps.
+# First windows inherit the current desktop (critical for Brave/Chrome).
 if (-not $SkipLaunch) {
   Write-Host ""
-  Write-Host "=== Launch pass (per-app desktop) ==="
+  Write-Host "=== Launch pass (per desktop) ==="
   $launchClaimed = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+  $pendingLaunch = [System.Collections.Generic.List[object]]::new()
+
   foreach ($rule in ($rules | Where-Object { $_.launch })) {
-    # Explorer: each folder window is a separate launch (keyed by folder path)
-    # Everyone else: one launch per process name
     $claimKey = if ($rule.process -eq 'explorer') {
       "explorer::$($rule.args)"
     } else {
@@ -417,7 +456,7 @@ if (-not $SkipLaunch) {
     if (-not $launchClaimed.Add($claimKey)) { continue }
 
     if ($rule.process -eq 'explorer') {
-      # Explorer is always "running"; still open this folder if not already visible
+      Invalidate-WindowSnapshot
       $already = @(Get-MatchingWindows -ProcessName 'explorer' -TitleMatch $rule.titleMatch)
       if ($already.Count -gt 0) {
         Write-Host "Explorer folder already open: $($rule.args)"
@@ -426,12 +465,11 @@ if (-not $SkipLaunch) {
     } else {
       $existing = @(Get-Process -Name $rule.process -ErrorAction SilentlyContinue)
       if ($existing.Count -gt 0 -and $rule.process -ne 'Taskmgr') {
-        # Taskmgr: process may exist without visible window; still try launch
-        # Other apps: skip if process already running
         Write-Host "Already running: $($rule.process)"
         continue
       }
       if ($rule.process -eq 'Taskmgr') {
+        Invalidate-WindowSnapshot
         $tmWin = @(Get-MatchingWindows -ProcessName 'Taskmgr' -TitleMatch $null)
         if ($tmWin.Count -gt 0) {
           Write-Host 'Already running: Taskmgr'
@@ -440,30 +478,55 @@ if (-not $SkipLaunch) {
       }
     }
 
-    Write-Host "Switch -> $($rule.desktop); launching $($rule.process) $(if ($rule.args) { $rule.args } else { '' })..."
-    Switch-Desktop -Desktop $desktopMap[$rule.desktop] -NoAnimation | Out-Null
-    Start-Sleep -Milliseconds 300
-    Start-RuleProcess -Rule $rule
+    $pendingLaunch.Add($rule) | Out-Null
   }
-  # Windows appear asynchronously; Place pass polls — only a short settle here
-  Write-Host "Waiting briefly for launched apps to create windows..."
-  Start-Sleep -Seconds 3
+
+  # Preserve first-seen desktop order from rules
+  $desktopOrder = [System.Collections.Generic.List[string]]::new()
+  foreach ($rule in $pendingLaunch) {
+    if (-not $desktopOrder.Contains([string]$rule.desktop)) {
+      $desktopOrder.Add([string]$rule.desktop) | Out-Null
+    }
+  }
+
+  foreach ($deskName in $desktopOrder) {
+    $batch = @($pendingLaunch | Where-Object { $_.desktop -eq $deskName })
+    Write-Host "Switch -> $deskName; launching $($batch.Count) app(s)..."
+    Switch-Desktop -Desktop $desktopMap[$deskName] -NoAnimation | Out-Null
+    Start-Sleep -Milliseconds 120
+    foreach ($rule in $batch) {
+      Write-Host "  launch $($rule.process) $(if ($rule.args) { $rule.args } else { '' })"
+      Start-RuleProcess -Rule $rule
+      Start-Sleep -Milliseconds 40
+    }
+  }
 }
 
-# Place pass: match by title keywords when set, then geometry
+# Place pass: quick try first (apps already up), then wait only for stragglers
 Write-Host ""
 Write-Host "=== Place pass ==="
+$pendingPlace = [System.Collections.Generic.List[object]]::new()
 foreach ($rule in $rules) {
-  $procUp = @(Get-Process -Name $rule.process -ErrorAction SilentlyContinue).Count -gt 0
-  # Shorter waits when process is missing; launched apps poll in Wait-MatchingWindow
-  $timeout = if (-not $procUp) { 6 } elseif ($rule.launch) { 45 } else { 20 }
-  [void](Place-RuleWindow -Rule $rule -DesktopObj $desktopMap[$rule.desktop] -UsedHwnds $usedHwnds -TimeoutSec $timeout)
+  $ok = Place-RuleWindow -Rule $rule -DesktopObj $desktopMap[$rule.desktop] `
+    -UsedHwnds $usedHwnds -TimeoutSec 0
+  if (-not $ok) { $pendingPlace.Add($rule) | Out-Null }
+}
+
+if ($pendingPlace.Count -gt 0) {
+  Write-Host "Waiting on $($pendingPlace.Count) window(s) still opening..."
+  foreach ($rule in $pendingPlace) {
+    $procUp = @(Get-Process -Name $rule.process -ErrorAction SilentlyContinue).Count -gt 0
+    # Missing process: fail fast (nothing to place). Slow UIs get a short poll budget.
+    $timeout = if (-not $procUp) { 1 } elseif ($rule.launch) { 15 } else { 8 }
+    [void](Place-RuleWindow -Rule $rule -DesktopObj $desktopMap[$rule.desktop] `
+      -UsedHwnds $usedHwnds -TimeoutSec $timeout)
+  }
 }
 
 # Final verification pass for anything still wrong (window recreations, late hwnds)
 Write-Host ""
 Write-Host "=== Verification pass ==="
-Start-Sleep -Seconds 1
+Invalidate-WindowSnapshot
 $usedHwnds.Clear()
 foreach ($rule in $rules) {
   $win = Select-BestWindow -ProcessName $rule.process -TitleMatch $rule.titleMatch `
@@ -479,6 +542,9 @@ foreach ($rule in $rules) {
     Move-WindowToGeometry -Hwnd $win.Hwnd -Rule $rule
   }
 }
+
+$elapsed = [int]((Get-Date) - $applyStarted).TotalSeconds
+Write-Host "Apply finished in ${elapsed}s (excluding startup delay)."
 
 # Return to followDesktop, or the desktop we started on
 if ($Follow -and $doc.followDesktop) {

@@ -1,7 +1,8 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-  Capture visible windows into window-layout.rules.json for apply-window-layout.ps1
+  Capture windows into window-layout.rules.json for apply-window-layout.ps1
+  (visible and minimized; minimized use restored size/position).
 
 .PARAMETER OutFile
   Rules file path (default: next to this script).
@@ -44,6 +45,7 @@ using System;
 using System.Text;
 using System.Runtime.InteropServices;
 public static class EnumWins {
+  public const int WPF_RESTORETOMAXIMIZED = 0x0002;
   public delegate bool EnumProc(IntPtr hWnd, IntPtr lParam);
   [DllImport("user32.dll")] public static extern bool EnumWindows(EnumProc lpEnumFunc, IntPtr lParam);
   [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
@@ -51,15 +53,24 @@ public static class EnumWins {
   [DllImport("user32.dll")] public static extern int GetWindowTextLength(IntPtr hWnd);
   [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
   [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+  [DllImport("user32.dll")] public static extern bool GetWindowPlacement(IntPtr hWnd, ref WINDOWPLACEMENT lpwndpl);
   [DllImport("user32.dll")] public static extern bool IsZoomed(IntPtr hWnd);
   [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hWnd);
   [StructLayout(LayoutKind.Sequential)]
   public struct RECT { public int Left, Top, Right, Bottom; }
+  [StructLayout(LayoutKind.Sequential)]
+  public struct POINT { public int X, Y; }
+  [StructLayout(LayoutKind.Sequential)]
+  public struct WINDOWPLACEMENT {
+    public int length; public int flags; public int showCmd;
+    public POINT ptMinPosition; public POINT ptMaxPosition; public RECT rcNormalPosition;
+  }
 }
 '@
 
 $skip = [System.Collections.Generic.HashSet[string]]::new(
   [string[]]@(
+    'WindowLayout',
     'TextInputHost', 'ApplicationFrameHost', 'SystemSettings', 'ShellExperienceHost',
     'SearchHost', 'StartMenuExperienceHost', 'LockApp', 'dwm',
     'sihost', 'RuntimeBroker'
@@ -117,7 +128,6 @@ foreach ($wp in (Get-CimInstance Win32_Process -Property ProcessId, ExecutablePa
 $callback = [EnumWins+EnumProc]{
   param([IntPtr]$hWnd, [IntPtr]$lParam)
   if (-not [EnumWins]::IsWindowVisible($hWnd)) { return $true }
-  if ([EnumWins]::IsIconic($hWnd)) { return $true }
   $len = [EnumWins]::GetWindowTextLength($hWnd)
   if ($len -le 0) { return $true }
   $sb = New-Object System.Text.StringBuilder ($len + 1)
@@ -134,8 +144,21 @@ $callback = [EnumWins+EnumProc]{
   if ($skip.Contains($procName)) { return $true }
   if ($IncludeProcess.Count -gt 0 -and ($IncludeProcess -notcontains $procName)) { return $true }
 
+  $iconic = [EnumWins]::IsIconic($hWnd)
   $r = New-Object EnumWins+RECT
-  [void][EnumWins]::GetWindowRect($hWnd, [ref]$r)
+  $maximized = $false
+  if ($iconic) {
+    # Minimized: GetWindowRect is taskbar-ish; use restored normal rect + restore-to-max flag
+    $wp = New-Object EnumWins+WINDOWPLACEMENT
+    $wp.length = [System.Runtime.InteropServices.Marshal]::SizeOf($wp)
+    if (-not [EnumWins]::GetWindowPlacement($hWnd, [ref]$wp)) { return $true }
+    $r = $wp.rcNormalPosition
+    $maximized = (($wp.flags -band [EnumWins]::WPF_RESTORETOMAXIMIZED) -ne 0)
+  } else {
+    [void][EnumWins]::GetWindowRect($hWnd, [ref]$r)
+    $maximized = [bool][EnumWins]::IsZoomed($hWnd)
+  }
+
   $w = $r.Right - $r.Left
   $h = $r.Bottom - $r.Top
   if ($w -lt 80 -or $h -lt 80) { return $true }
@@ -163,7 +186,8 @@ $callback = [EnumWins+EnumProc]{
     Top        = $r.Top
     Width      = $w
     Height     = $h
-    Maximized  = [bool][EnumWins]::IsZoomed($hWnd)
+    Maximized  = $maximized
+    Minimized  = $iconic
     Path       = $exe
     FolderPath = $folderPath
     Hwnd       = [int64]$hWnd
