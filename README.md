@@ -10,7 +10,7 @@ Works on Windows 10/11 **x64**. The GUI is **self-contained** (bundles .NET). Sc
 2. Run the installer wizard (no admin required).
 3. Open **Start Menu → Window Layout**.
 
-The wizard installs to `%LOCALAPPDATA%\Programs\WindowLayout`, creates Start Menu shortcuts, and offers optional desktop shortcut / VirtualDesktop module / PowerShell 7 / logon restore (desktop shortcut is **unchecked** by default).
+The wizard installs to `%LOCALAPPDATA%\Programs\WindowLayout`, creates a Start Menu shortcut, and can install the VirtualDesktop module. **Sign-in restore** and **PowerShell 7** are optional and configured in the app (not the installer). Desktop shortcut is **unchecked** by default.
 
 **Pin to Start:** Right-click **Window Layout** in the Start menu → **Pin to Start**.
 

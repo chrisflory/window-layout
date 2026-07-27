@@ -210,7 +210,17 @@ public sealed class MainForm : Form
             RefreshUiState();
         };
         btnRepair.Click += async (_, _) => await RunScriptAsync("setup.ps1");
-        btnPs7.Click += async (_, _) => await RunScriptAsync("install-powershell7.ps1");
+        btnPs7.Click += async (_, _) =>
+        {
+            if (HasPowerShell7())
+            {
+                MessageBox.Show(this,
+                    "PowerShell 7 is already installed on this PC.",
+                    "Window Layout", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            await RunScriptAsync("install-powershell7.ps1");
+        };
         btnAbout.Click += (_, _) =>
         {
             var ver = typeof(MainForm).Assembly.GetName().Version?.ToString(3) ?? "?";
@@ -408,17 +418,56 @@ public sealed class MainForm : Form
 
         if (result == DialogResult.Yes)
         {
-            var ps7 = MessageBox.Show(this,
-                "Also install PowerShell 7 via winget? (optional — Windows PowerShell 5.1 works too)",
-                "PowerShell 7",
-                MessageBoxButtons.YesNo,
-                MessageBoxIcon.Question);
-            if (ps7 == DialogResult.Yes)
-                await RunScriptAsync("install-powershell7.ps1");
+            // Only offer PS7 if pwsh is not already available
+            if (!HasPowerShell7())
+            {
+                var ps7 = MessageBox.Show(this,
+                    "PowerShell 7 was not found.\n\nInstall it via winget? (optional — Windows PowerShell 5.1 works too)",
+                    "PowerShell 7",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Question);
+                if (ps7 == DialogResult.Yes)
+                    await RunScriptAsync("install-powershell7.ps1");
+            }
+            else
+            {
+                AppendLog("PowerShell 7 already present — skipping PS7 install prompt.");
+            }
+
             await RunScriptAsync("setup.ps1");
         }
 
         MarkFirstRunDone();
+    }
+
+    private static bool HasPowerShell7()
+    {
+        var candidates = new[]
+        {
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "PowerShell", "7", "pwsh.exe"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Microsoft", "WindowsApps", "pwsh.exe")
+        };
+        if (candidates.Any(File.Exists)) return true;
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = "where.exe",
+                Arguments = "pwsh",
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                CreateNoWindow = true
+            };
+            using var p = Process.Start(psi);
+            var output = p?.StandardOutput.ReadToEnd() ?? "";
+            p?.WaitForExit(3000);
+            return output.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Any(File.Exists);
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private static Label SectionLabel(string text, int x, int y) => new()

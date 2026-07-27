@@ -13,5 +13,7 @@ After setup
 -----------
   1. Open Start Menu → Window Layout
   2. Arrange your windows how you like them
-  3. Follow steps 1 → 2 → 3 in the app
-     (save layout → test restore → optional sign-in restore)
+  3. In the app: save layout → test restore → turn on sign-in restore (step 3)
+
+Sign-in restore and PowerShell 7 are optional and configured in the app,
+not in this installer.

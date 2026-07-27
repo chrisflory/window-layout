@@ -44,9 +44,8 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Additional icons:"; Flags: unchecked
-Name: "installps7"; Description: "Install &PowerShell 7 (recommended; uses winget, needs internet)"; GroupDescription: "Components:"; Flags: unchecked
-Name: "installmodule"; Description: "Install VirtualDesktop PowerShell module (required, needs internet)"; GroupDescription: "Components:"; Flags: checkedonce
-Name: "logontask"; Description: "Restore window layout automatically at &logon"; GroupDescription: "Startup:"; Flags: unchecked
+Name: "installmodule"; Description: "Install VirtualDesktop PowerShell module (required once, needs internet)"; GroupDescription: "Components:"; Flags: checkedonce
+; Sign-in restore and PowerShell 7 are configured in the app (steps / More options) — not here.
 
 [Files]
 ; GUI (main Start Menu / desktop target)
@@ -82,10 +81,7 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\App Paths\WindowL
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\App Paths\WindowLayout.exe"; ValueType: string; ValueName: "Path"; ValueData: "{app}"
 
 [Run]
-; Optional PS7 first so later steps can use pwsh when chosen
-Filename: "{app}\run-powershell.cmd"; Parameters: "-File ""{app}\install-powershell7.ps1"""; StatusMsg: "Installing PowerShell 7..."; Flags: runhidden waituntilterminated; Tasks: installps7
 Filename: "{app}\run-powershell.cmd"; Parameters: "-File ""{app}\setup.ps1"""; StatusMsg: "Installing VirtualDesktop module..."; Flags: runhidden waituntilterminated; Tasks: installmodule
-Filename: "{app}\run-powershell.cmd"; Parameters: "-File ""{app}\register-logon-task.ps1"""; StatusMsg: "Registering logon task..."; Flags: runhidden waituntilterminated; Tasks: logontask
 Filename: "{app}\{#MyAppExeName}"; Description: "Open Window Layout now"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
