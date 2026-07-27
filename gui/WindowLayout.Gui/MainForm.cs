@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Net.Http;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -10,15 +9,41 @@ public sealed class MainForm : Form
 {
     private readonly Label _nextHint = new();
     private readonly Label _statusLine = new();
-    private readonly Label _versionLabel = new();
     private readonly TextBox _log = new();
-    private readonly Button _btn1;
-    private readonly Button _btn2;
-    private readonly Button _btn3;
+    private readonly SoftButton _btn1;
+    private readonly SoftButton _btn2;
+    private readonly SoftButton _btn3;
     private readonly Panel _advancedPanel = new();
+    private readonly SoftButton _btnTheme;
+    private readonly SoftButton _btnClearLog;
+    private readonly SoftButton _btnOff;
+    private readonly SoftButton _btnList;
+    private readonly SoftButton _btnFolder;
+    private readonly SoftButton _btnKill;
+    private readonly SoftButton _btnClearStop;
+    private readonly SoftButton _btnRepair;
+    private readonly SoftButton _btnPs7;
+    private readonly SoftButton _btnAbout;
+    private readonly SoftButton _btnUpdate;
+    private readonly Label _titleLabel;
+    private readonly Label _subtitleLabel;
+    private readonly Label _versionLabel;
+    private readonly Label _stepsLabel;
+    private readonly Label _logHeader;
+    private readonly LinkLabel _moreToggle;
+    private readonly Panel _header;
+    private readonly Panel _headerRule;
+    private readonly Panel _bottomBar;
+    private readonly Panel _steps;
+    private readonly Panel _logPanel;
+    private readonly Panel _logFrame;
+    private readonly Panel _logInner;
+
     private bool _busy;
     private bool _advancedOpen;
     private bool _firstRunPending;
+    private AppThemeMode _themeMode = AppThemeMode.Dark;
+    private AppTheme _theme = AppTheme.Dark;
     private string? _updateTag;
     private string? _updateUrl;
     private string? _dismissedUpdateTag;
@@ -41,10 +66,9 @@ public sealed class MainForm : Form
         Height = 640;
         MinimumSize = new Size(700, 560);
         StartPosition = FormStartPosition.CenterScreen;
-        BackColor = Color.FromArgb(11, 18, 32);
-        ForeColor = Color.FromArgb(248, 250, 252);
         Font = new Font("Segoe UI", 10f);
         Padding = new Padding(0);
+        DoubleBuffered = true;
         RestoreWindowBounds();
 
         var appIcon = LoadAppIcon();
@@ -54,91 +78,87 @@ public sealed class MainForm : Form
             ShowIcon = true;
         }
 
-        var header = new Panel
-        {
-            Dock = DockStyle.Top,
-            Height = 96,
-            BackColor = Color.FromArgb(15, 23, 42)
-        };
+        _header = new Panel { Dock = DockStyle.Top, Height = 100 };
 
         if (appIcon is not null)
         {
             using var small = new Icon(appIcon, 48, 48);
-            var logo = new PictureBox
+            _header.Controls.Add(new PictureBox
             {
                 Image = small.ToBitmap(),
                 SizeMode = PictureBoxSizeMode.Zoom,
                 Size = new Size(56, 56),
-                Location = new Point(24, 20),
+                Location = new Point(24, 22),
                 BackColor = Color.Transparent
-            };
-            header.Controls.Add(logo);
+            });
         }
 
-        header.Controls.Add(new Label
+        _titleLabel = new Label
         {
             Text = "Window Layout",
             Font = new Font("Segoe UI Semibold", 18f),
             AutoSize = true,
-            Location = new Point(appIcon is null ? 28 : 92, 20),
-            ForeColor = Color.White
-        });
-        var versionLabel = _versionLabel;
-        versionLabel.Text = $"v{AppVersion}";
-        versionLabel.Font = new Font("Segoe UI", 10f);
-        versionLabel.AutoSize = true;
-        versionLabel.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-        versionLabel.ForeColor = Color.FromArgb(100, 116, 139);
-        versionLabel.Cursor = Cursors.Hand;
-        versionLabel.Click += async (_, _) => await CheckForUpdatesAsync(interactive: true);
-        // Place after header is sized; adjust on resize
-        void PlaceVersion()
+            Location = new Point(appIcon is null ? 28 : 92, 22)
+        };
+        _header.Controls.Add(_titleLabel);
+
+        _btnTheme = SmallButton("Light", 0, 0, _theme.BtnMuted);
+        _btnTheme.Size = new Size(72, 28);
+        _btnTheme.CornerRadius = 8;
+        _btnTheme.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+        _btnTheme.Click += (_, _) => ToggleTheme();
+
+        _versionLabel = new Label
         {
-            versionLabel.Location = new Point(
-                Math.Max(200, header.ClientSize.Width - versionLabel.PreferredWidth - 28),
-                28);
+            Text = $"v{AppVersion}",
+            Font = new Font("Segoe UI Semibold", 10f),
+            AutoSize = true,
+            Anchor = AnchorStyles.Top | AnchorStyles.Right,
+            BackColor = Color.Transparent,
+            Cursor = Cursors.Hand
+        };
+        _versionLabel.Click += async (_, _) => await CheckForUpdatesAsync(interactive: true);
+        void PlaceHeaderChrome()
+        {
+            var right = _header.ClientSize.Width - 28;
+            _btnTheme.Location = new Point(Math.Max(200, right - _btnTheme.Width), 26);
+            _versionLabel.Location = new Point(_btnTheme.Left - _versionLabel.PreferredWidth - 12, 30);
         }
-        header.Controls.Add(versionLabel);
-        header.Resize += (_, _) => PlaceVersion();
-        PlaceVersion();
-        header.Controls.Add(new Label
+        _header.Controls.Add(_btnTheme);
+        _header.Controls.Add(_versionLabel);
+        _header.Resize += (_, _) => PlaceHeaderChrome();
+        PlaceHeaderChrome();
+
+        _subtitleLabel = new Label
         {
             Text = "Save where your windows live, then restore them — including at sign-in.",
             AutoSize = true,
-            Location = new Point(appIcon is null ? 30 : 94, 56),
-            ForeColor = Color.FromArgb(148, 163, 184)
-        });
+            Location = new Point(appIcon is null ? 30 : 94, 58)
+        };
+        _header.Controls.Add(_subtitleLabel);
 
-        // Fixed bottom bar — status + clear activity
-        var bottomBar = new Panel
+        _headerRule = new Panel { Dock = DockStyle.Bottom, Height = 1 };
+        _header.Controls.Add(_headerRule);
+
+        _bottomBar = new Panel
         {
             Dock = DockStyle.Bottom,
-            Height = 36,
-            BackColor = Color.FromArgb(15, 23, 42),
-            Padding = new Padding(16, 0, 12, 0)
+            Height = 40,
+            Padding = new Padding(18, 0, 14, 0)
         };
         _statusLine.Dock = DockStyle.Fill;
         _statusLine.TextAlign = ContentAlignment.MiddleLeft;
-        _statusLine.ForeColor = Color.FromArgb(148, 163, 184);
         _statusLine.Text = "";
-        var btnClearLog = new Button
-        {
-            Text = "Clear log",
-            Dock = DockStyle.Right,
-            Width = 90,
-            FlatStyle = FlatStyle.Flat,
-            BackColor = Color.FromArgb(51, 65, 85),
-            ForeColor = Color.White,
-            Cursor = Cursors.Hand,
-            FlatAppearance = { BorderSize = 0 },
-            Margin = new Padding(8)
-        };
-        btnClearLog.Click += (_, _) => { _log.Clear(); };
-        bottomBar.Controls.Add(_statusLine);
-        bottomBar.Controls.Add(btnClearLog);
+        _btnClearLog = SmallButton("Clear log", 0, 0, _theme.BtnMuted);
+        _btnClearLog.Dock = DockStyle.Right;
+        _btnClearLog.Width = 104;
+        _btnClearLog.Height = 28;
+        _btnClearLog.CornerRadius = 8;
+        _btnClearLog.Click += (_, _) => { _log.Clear(); };
+        _bottomBar.Controls.Add(_statusLine);
+        _bottomBar.Controls.Add(_btnClearLog);
 
-        // Top actions (fixed height); activity log fills the rest and scrolls
-        var steps = new Panel
+        _steps = new Panel
         {
             Dock = DockStyle.Top,
             Height = 360,
@@ -150,23 +170,22 @@ public sealed class MainForm : Form
         _nextHint.Size = new Size(680, 36);
         _nextHint.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
         _nextHint.Font = new Font("Segoe UI Semibold", 11f);
-        _nextHint.ForeColor = Color.FromArgb(103, 232, 249);
         _nextHint.Text = "Loading…";
 
-        var stepsLabel = SectionLabel("Setup (do once, or whenever you rearrange)", 28, 48);
+        _stepsLabel = SectionLabel("Setup (do once, or whenever you rearrange)", 28, 48);
 
         _btn1 = StepButton(
             "1  Save current layout",
             "Arrange your windows first, then click. Remembers apps, desktops, and positions.",
-            28, 72, Color.FromArgb(8, 145, 178));
+            28, 72, _theme.AccentTeal);
         _btn2 = StepButton(
             "2  Test restore now",
             "Moves windows back to the saved layout. Try this before turning on logon.",
-            28, 138, Color.FromArgb(5, 150, 105));
+            28, 138, _theme.AccentGreen);
         _btn3 = StepButton(
             "3  Turn on at sign-in",
             "Runs the restore automatically after you log into Windows.",
-            28, 204, Color.FromArgb(37, 99, 235));
+            28, 204, _theme.AccentBlue);
         foreach (var b in new[] { _btn1, _btn2, _btn3 })
             b.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
 
@@ -192,53 +211,51 @@ public sealed class MainForm : Form
             RefreshUiState();
         };
 
-        var moreToggle = new LinkLabel
+        _moreToggle = new LinkLabel
         {
             Text = "More options ▸",
             AutoSize = true,
-            Location = new Point(28, 272),
-            LinkColor = Color.FromArgb(148, 163, 184),
-            ActiveLinkColor = Color.FromArgb(103, 232, 249),
-            VisitedLinkColor = Color.FromArgb(148, 163, 184)
+            Location = new Point(28, 272)
         };
 
         _advancedPanel.Location = new Point(28, 296);
-        _advancedPanel.Size = new Size(680, 148);
+        _advancedPanel.Size = new Size(680, 156);
         _advancedPanel.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
         _advancedPanel.Visible = false;
+        _advancedPanel.BackColor = Color.Transparent;
 
-        var btnOff = SmallButton("Turn off sign-in restore", 0, 0, Color.FromArgb(71, 85, 105));
-        var btnList = SmallButton("List open windows", 230, 0, Color.FromArgb(71, 85, 105));
-        var btnFolder = SmallButton("Open files folder", 460, 0, Color.FromArgb(71, 85, 105));
-        var btnKill = SmallButton("Emergency stop", 0, 48, Color.FromArgb(185, 28, 28));
-        var btnClear = SmallButton("Clear emergency stop", 230, 48, Color.FromArgb(71, 85, 105));
-        var btnRepair = SmallButton("Repair / setup module", 460, 48, Color.FromArgb(71, 85, 105));
-        var btnPs7 = SmallButton("Install PowerShell 7", 0, 96, Color.FromArgb(30, 64, 175));
-        var btnAbout = SmallButton("About / version", 230, 96, Color.FromArgb(71, 85, 105));
-        var btnUpdate = SmallButton("Check for updates", 460, 96, Color.FromArgb(30, 64, 175));
+        _btnOff = SmallButton("Turn off sign-in restore", 0, 0, _theme.BtnMuted);
+        _btnList = SmallButton("List open windows", 230, 0, _theme.BtnMuted);
+        _btnFolder = SmallButton("Open files folder", 460, 0, _theme.BtnMuted);
+        _btnKill = SmallButton("Emergency stop", 0, 48, _theme.BtnDanger);
+        _btnClearStop = SmallButton("Clear emergency stop", 230, 48, _theme.BtnMuted);
+        _btnRepair = SmallButton("Repair / setup module", 460, 48, _theme.BtnMuted);
+        _btnPs7 = SmallButton("Install PowerShell 7", 0, 96, _theme.BtnDeep);
+        _btnAbout = SmallButton("About / version", 230, 96, _theme.BtnMuted);
+        _btnUpdate = SmallButton("Check for updates", 460, 96, _theme.BtnDeep);
 
-        btnOff.Click += async (_, _) =>
+        _btnOff.Click += async (_, _) =>
         {
             await RunScriptAsync("register-logon-task.ps1", "-Unregister");
             RefreshUiState();
         };
-        btnList.Click += async (_, _) => await RunScriptAsync("list-window-layout.ps1");
-        btnFolder.Click += (_, _) =>
+        _btnList.Click += async (_, _) => await RunScriptAsync("list-window-layout.ps1");
+        _btnFolder.Click += (_, _) =>
             Process.Start(new ProcessStartInfo { FileName = AppDir, UseShellExecute = true });
-        btnKill.Click += (_, _) =>
+        _btnKill.Click += (_, _) =>
         {
             File.WriteAllText(DisableFlag, "disabled\n");
             AppendLog("Emergency stop on — Apply and logon restore will do nothing until cleared.");
             RefreshUiState();
         };
-        btnClear.Click += (_, _) =>
+        _btnClearStop.Click += (_, _) =>
         {
             if (File.Exists(DisableFlag)) File.Delete(DisableFlag);
             AppendLog("Emergency stop cleared.");
             RefreshUiState();
         };
-        btnRepair.Click += async (_, _) => await RunScriptAsync("setup.ps1");
-        btnPs7.Click += async (_, _) =>
+        _btnRepair.Click += async (_, _) => await RunScriptAsync("setup.ps1");
+        _btnPs7.Click += async (_, _) =>
         {
             if (HasPowerShell7())
             {
@@ -249,37 +266,35 @@ public sealed class MainForm : Form
             }
             await RunScriptAsync("install-powershell7.ps1");
         };
-        btnAbout.Click += (_, _) =>
+        _btnAbout.Click += (_, _) =>
         {
-            var updateNote = _updateTag is null
-                ? ""
-                : $"\n\nUpdate available: {_updateTag}";
+            var updateNote = _updateTag is null ? "" : $"\n\nUpdate available: {_updateTag}";
             MessageBox.Show(this,
-                $"Window Layout {AppVersion}{updateNote}\n\nInstall folder:\n{AppDir}\n\n{GitHubRepoUrl}",
+                $"Window Layout {AppVersion}{updateNote}\n\nTheme: {_themeMode}\n\nInstall folder:\n{AppDir}\n\n{GitHubRepoUrl}",
                 "About Window Layout", MessageBoxButtons.OK, MessageBoxIcon.Information);
         };
-        btnUpdate.Click += async (_, _) => await CheckForUpdatesAsync(interactive: true);
+        _btnUpdate.Click += async (_, _) => await CheckForUpdatesAsync(interactive: true);
 
         _advancedPanel.Controls.AddRange([
-            btnOff, btnList, btnFolder,
-            btnKill, btnClear, btnRepair,
-            btnPs7, btnAbout, btnUpdate
+            _btnOff, _btnList, _btnFolder,
+            _btnKill, _btnClearStop, _btnRepair,
+            _btnPs7, _btnAbout, _btnUpdate
         ]);
 
         void RelayoutSteps()
         {
-            var w = Math.Max(640, steps.ClientSize.Width - 56);
+            var w = Math.Max(640, _steps.ClientSize.Width - 56);
             _nextHint.Width = w;
             _btn1.Width = _btn2.Width = _btn3.Width = w;
             _advancedPanel.Width = w;
-            steps.Height = _advancedOpen ? 470 : 300;
+            _steps.Height = _advancedOpen ? 486 : 308;
         }
 
-        moreToggle.LinkClicked += (_, _) =>
+        _moreToggle.LinkClicked += (_, _) =>
         {
             _advancedOpen = !_advancedOpen;
             _advancedPanel.Visible = _advancedOpen;
-            moreToggle.Text = _advancedOpen ? "More options ▾" : "More options ▸";
+            _moreToggle.Text = _advancedOpen ? "More options ▾" : "More options ▸";
             RelayoutSteps();
             SaveWindowBounds();
         };
@@ -287,56 +302,59 @@ public sealed class MainForm : Form
         if (_advancedOpen)
         {
             _advancedPanel.Visible = true;
-            moreToggle.Text = "More options ▾";
+            _moreToggle.Text = "More options ▾";
         }
 
-        steps.Controls.AddRange([
-            _nextHint, stepsLabel,
+        _steps.Controls.AddRange([
+            _nextHint, _stepsLabel,
             _btn1, _btn2, _btn3,
-            moreToggle, _advancedPanel
+            _moreToggle, _advancedPanel
         ]);
-        steps.Resize += (_, _) => RelayoutSteps();
+        _steps.Resize += (_, _) => RelayoutSteps();
 
-        var logPanel = new Panel
+        _logPanel = new Panel
         {
             Dock = DockStyle.Fill,
-            Padding = new Padding(28, 4, 28, 8)
+            Padding = new Padding(28, 8, 28, 12)
         };
-        var logHeader = new Label
+        _logHeader = new Label
         {
             Text = "Activity",
             Dock = DockStyle.Top,
             Height = 24,
-            ForeColor = Color.FromArgb(148, 163, 184),
-            Font = new Font("Segoe UI", 9f),
-            TextAlign = ContentAlignment.MiddleLeft
+            Font = new Font("Segoe UI Semibold", 9f),
+            TextAlign = ContentAlignment.MiddleLeft,
+            Padding = new Padding(4, 0, 0, 0)
         };
         _log.Multiline = true;
         _log.ScrollBars = ScrollBars.Vertical;
         _log.ReadOnly = true;
-        _log.BackColor = Color.FromArgb(15, 23, 42);
-        _log.ForeColor = Color.FromArgb(226, 232, 240);
         _log.Font = new Font("Consolas", 9f);
         _log.WordWrap = true;
-        _log.BorderStyle = BorderStyle.FixedSingle;
+        _log.BorderStyle = BorderStyle.None;
         _log.Dock = DockStyle.Fill;
         _log.HideSelection = false;
-        logPanel.Controls.Add(_log);
-        logPanel.Controls.Add(logHeader);
 
-        // Dock order: Fill first in z-order terms — add Fill before Top so Top gets priority... 
-        // WinForms: last docked control gets preference for remaining space when using Fill.
-        // Correct order: add Fill last.
-        Controls.Add(logPanel);
-        Controls.Add(steps);
-        Controls.Add(bottomBar);
-        Controls.Add(header);
+        _logFrame = new Panel { Dock = DockStyle.Fill, Padding = new Padding(1) };
+        _logInner = new Panel { Dock = DockStyle.Fill, Padding = new Padding(10, 8, 6, 8) };
+        _logInner.Controls.Add(_log);
+        _logFrame.Controls.Add(_logInner);
+        _logPanel.Controls.Add(_logFrame);
+        _logPanel.Controls.Add(_logHeader);
+
+        Controls.Add(_logPanel);
+        Controls.Add(_steps);
+        Controls.Add(_bottomBar);
+        Controls.Add(_header);
+
+        ApplyTheme();
 
         FormClosing += (_, _) => SaveWindowBounds();
         ResizeEnd += (_, _) => SaveWindowBounds();
         Shown += async (_, _) =>
         {
             RelayoutSteps();
+            PlaceHeaderChrome();
             RefreshUiState();
             AppendLog("Arrange your windows, then follow steps 1 → 2 → 3.");
             await OfferFirstRunSetupAsync();
@@ -353,7 +371,77 @@ public sealed class MainForm : Form
         public string WindowState { get; set; } = "Normal";
         public bool AdvancedOpen { get; set; }
         public bool FirstRunDone { get; set; }
+        public string Theme { get; set; } = "Dark";
         public string? DismissedUpdateTag { get; set; }
+    }
+
+    private void ToggleTheme()
+    {
+        _themeMode = _themeMode == AppThemeMode.Dark ? AppThemeMode.Light : AppThemeMode.Dark;
+        ApplyTheme();
+        RefreshUiState();
+        SaveWindowBounds();
+    }
+
+    private void ApplyTheme()
+    {
+        _theme = AppTheme.For(_themeMode);
+
+        BackColor = _theme.BgDeep;
+        ForeColor = _theme.TextPrimary;
+
+        _header.BackColor = _theme.BgHeader;
+        _headerRule.BackColor = _theme.Rule;
+        _bottomBar.BackColor = _theme.BgHeader;
+        _steps.BackColor = _theme.BgDeep;
+        _logPanel.BackColor = _theme.BgDeep;
+        _logFrame.BackColor = _theme.LogFrame;
+        _logInner.BackColor = _theme.BgPanel;
+        _log.BackColor = _theme.BgPanel;
+        _log.ForeColor = _theme.TextSoft;
+
+        _titleLabel.ForeColor = _theme.TextPrimary;
+        _subtitleLabel.ForeColor = _theme.TextMuted;
+        _versionLabel.ForeColor = _theme.TextVersion;
+        _stepsLabel.ForeColor = _theme.TextMuted;
+        _logHeader.ForeColor = _theme.TextMuted;
+        _statusLine.ForeColor = _theme.TextMuted;
+
+        _moreToggle.LinkColor = _theme.TextMuted;
+        _moreToggle.ActiveLinkColor = _theme.AccentHint;
+        _moreToggle.VisitedLinkColor = _theme.TextMuted;
+
+        _btn1.BackColor = _theme.AccentTeal;
+        _btn2.BackColor = _theme.AccentGreen;
+        _btn3.BackColor = _theme.AccentBlue;
+        foreach (var b in new[] { _btn1, _btn2, _btn3 })
+        {
+            b.ForeColor = _theme.SoftButtonFg;
+            b.Invalidate();
+        }
+
+        void StyleMuted(SoftButton b, Color back)
+        {
+            b.BackColor = back;
+            b.ForeColor = _theme.SoftButtonFg;
+            b.Invalidate();
+        }
+
+        StyleMuted(_btnTheme, _theme.BtnMuted);
+        StyleMuted(_btnClearLog, _theme.BtnMuted);
+        StyleMuted(_btnOff, _theme.BtnMuted);
+        StyleMuted(_btnList, _theme.BtnMuted);
+        StyleMuted(_btnFolder, _theme.BtnMuted);
+        StyleMuted(_btnClearStop, _theme.BtnMuted);
+        StyleMuted(_btnRepair, _theme.BtnMuted);
+        StyleMuted(_btnAbout, _theme.BtnMuted);
+        StyleMuted(_btnKill, _theme.BtnDanger);
+        StyleMuted(_btnPs7, _theme.BtnDeep);
+        StyleMuted(_btnUpdate, _theme.BtnDeep);
+
+        // Button shows the mode you can switch TO
+        _btnTheme.Text = _themeMode == AppThemeMode.Dark ? "Light" : "Dark";
+        Invalidate(true);
     }
 
     private void RestoreWindowBounds()
@@ -366,9 +454,22 @@ public sealed class MainForm : Form
                 return;
             }
             var state = JsonSerializer.Deserialize<UiState>(File.ReadAllText(UiStatePath));
-            if (state is null || state.Width < MinimumSize.Width || state.Height < MinimumSize.Height)
+            if (state is null)
             {
-                _firstRunPending = state?.FirstRunDone != true;
+                _firstRunPending = true;
+                return;
+            }
+
+            if (Enum.TryParse<AppThemeMode>(state.Theme, ignoreCase: true, out var mode))
+            {
+                _themeMode = mode;
+                _theme = AppTheme.For(_themeMode);
+            }
+            _dismissedUpdateTag = state.DismissedUpdateTag;
+
+            if (state.Width < MinimumSize.Width || state.Height < MinimumSize.Height)
+            {
+                _firstRunPending = state.FirstRunDone != true;
                 return;
             }
 
@@ -376,6 +477,8 @@ public sealed class MainForm : Form
             if (!bounds.IntersectsWith(SystemInformation.VirtualScreen))
             {
                 StartPosition = FormStartPosition.CenterScreen;
+                _advancedOpen = state.AdvancedOpen;
+                _firstRunPending = !state.FirstRunDone;
                 return;
             }
 
@@ -423,6 +526,7 @@ public sealed class MainForm : Form
                 WindowState = WindowState == FormWindowState.Minimized ? "Normal" : WindowState.ToString(),
                 AdvancedOpen = _advancedOpen,
                 FirstRunDone = prevDone || !_firstRunPending,
+                Theme = _themeMode.ToString(),
                 DismissedUpdateTag = _dismissedUpdateTag
             };
             File.WriteAllText(UiStatePath, JsonSerializer.Serialize(state, new JsonSerializerOptions { WriteIndented = true }));
@@ -446,7 +550,6 @@ public sealed class MainForm : Form
         var hasModule = HasVirtualDesktopModule();
         var hasPs7 = HasPowerShell7();
 
-        // Already set up (common after upgrade / reinstall) — don't nag
         if (hasModule)
         {
             AppendLog(hasPs7
@@ -498,7 +601,6 @@ public sealed class MainForm : Form
             };
             if (roots.Any(Directory.Exists)) return true;
 
-            // Fall back to Get-Module (covers OneDrive / custom PSModulePath)
             foreach (var shell in new[] { "pwsh", "powershell" })
             {
                 try
@@ -571,43 +673,31 @@ public sealed class MainForm : Form
         Text = text,
         AutoSize = true,
         Location = new Point(x, y),
-        ForeColor = Color.FromArgb(148, 163, 184),
-        Font = new Font("Segoe UI", 9f)
+        Font = new Font("Segoe UI Semibold", 9f)
     };
 
-    private static Button StepButton(string title, string detail, int x, int y, Color back)
+    private static SoftButton StepButton(string title, string detail, int x, int y, Color back) => new()
     {
-        var btn = new Button
-        {
-            Text = title + Environment.NewLine + detail,
-            Location = new Point(x, y),
-            Size = new Size(680, 58),
-            FlatStyle = FlatStyle.Flat,
-            BackColor = back,
-            ForeColor = Color.White,
-            Cursor = Cursors.Hand,
-            TextAlign = ContentAlignment.MiddleLeft,
-            Padding = new Padding(16, 0, 16, 0),
-            Font = new Font("Segoe UI Semibold", 11f),
-            FlatAppearance = { BorderSize = 0 }
-        };
-        // WinForms multiline button uses \n; set Text properly
-        btn.Text = title + "\n" + detail;
-        btn.Font = new Font("Segoe UI", 9.5f);
-        return btn;
-    }
+        Text = title + "\n" + detail,
+        Location = new Point(x, y),
+        Size = new Size(680, 60),
+        BackColor = back,
+        ForeColor = Color.White,
+        TextAlign = ContentAlignment.MiddleLeft,
+        Padding = new Padding(16, 0, 16, 0),
+        Font = new Font("Segoe UI Semibold", 9.75f),
+        CornerRadius = 14
+    };
 
-    private static Button SmallButton(string text, int x, int y, Color back) => new()
+    private static SoftButton SmallButton(string text, int x, int y, Color back) => new()
     {
         Text = text,
         Location = new Point(x, y),
-        Size = new Size(210, 36),
-        FlatStyle = FlatStyle.Flat,
+        Size = new Size(210, 38),
         BackColor = back,
         ForeColor = Color.White,
-        Cursor = Cursors.Hand,
-        FlatAppearance = { BorderSize = 0 },
-        Font = new Font("Segoe UI", 9f)
+        Font = new Font("Segoe UI Semibold", 9f),
+        CornerRadius = 10
     };
 
     private void RefreshUiState()
@@ -624,24 +714,24 @@ public sealed class MainForm : Form
         if (disabled)
         {
             _nextHint.Text = "Emergency stop is on — use More options → Clear emergency stop.";
-            _nextHint.ForeColor = Color.FromArgb(252, 165, 165);
+            _nextHint.ForeColor = _theme.AccentWarn;
         }
         else if (!hasRules)
         {
             _nextHint.Text = "Next: arrange your windows, then click step 1 to save them.";
-            _nextHint.ForeColor = Color.FromArgb(103, 232, 249);
+            _nextHint.ForeColor = _theme.AccentHint;
             Highlight(_btn1);
         }
         else if (!logon)
         {
             _nextHint.Text = "Next: click step 2 to test, then step 3 to restore at every sign-in.";
-            _nextHint.ForeColor = Color.FromArgb(103, 232, 249);
+            _nextHint.ForeColor = _theme.AccentHint;
             Highlight(_btn2);
         }
         else
         {
             _nextHint.Text = "You’re set. Re-run step 1 anytime after you rearrange windows.";
-            _nextHint.ForeColor = Color.FromArgb(167, 243, 208);
+            _nextHint.ForeColor = _theme.AccentOk;
             ClearHighlight();
         }
 
@@ -650,42 +740,31 @@ public sealed class MainForm : Form
         _statusLine.Text = disabled
             ? $"  Stopped  ·  {rules} saved window(s)  ·  {logonText}{updateBit}"
             : $"  {rules} window(s) saved  ·  {logonText}{updateBit}  ·  {DateTime.Now:t}";
-        _statusLine.ForeColor = disabled ? Color.FromArgb(252, 165, 165) : Color.FromArgb(148, 163, 184);
+        _statusLine.ForeColor = disabled ? _theme.AccentWarn : _theme.TextMuted;
 
         if (_updateTag is not null)
         {
             _versionLabel.Text = $"v{AppVersion} ↑";
             _versionLabel.ForeColor = Color.FromArgb(250, 204, 21);
-            _versionLabel.Cursor = Cursors.Hand;
         }
         else
         {
             _versionLabel.Text = $"v{AppVersion}";
-            _versionLabel.ForeColor = Color.FromArgb(100, 116, 139);
-            _versionLabel.Cursor = Cursors.Hand;
+            _versionLabel.ForeColor = _theme.TextVersion;
         }
-
-        if (_versionLabel.Parent is Control header)
-        {
-            _versionLabel.Location = new Point(
-                Math.Max(200, header.ClientSize.Width - _versionLabel.PreferredWidth - 28),
-                28);
-        }
+        _versionLabel.Cursor = Cursors.Hand;
     }
 
-    private void Highlight(Button focus)
+    private void Highlight(SoftButton focus)
     {
         ClearHighlight();
-        focus.FlatAppearance.BorderSize = 2;
-        focus.FlatAppearance.BorderColor = Color.FromArgb(165, 243, 252);
+        focus.Emphasized = true;
     }
 
     private void ClearHighlight()
     {
         foreach (var b in new[] { _btn1, _btn2, _btn3 })
-        {
-            b.FlatAppearance.BorderSize = 0;
-        }
+            b.Emphasized = false;
     }
 
     private int CountRules()
@@ -719,7 +798,6 @@ public sealed class MainForm : Form
             var output = p?.StandardOutput.ReadToEnd() ?? "";
             p?.WaitForExit(4000);
             if (p?.ExitCode != 0) return false;
-            // Status line: Ready / Running = enabled; Disabled = off
             return Regex.IsMatch(output, @"Status:\s*(Ready|Running)", RegexOptions.IgnoreCase);
         }
         catch
@@ -744,12 +822,9 @@ public sealed class MainForm : Form
         var stamp = DateTime.Now.ToString("HH:mm:ss");
         _log.AppendText($"[{stamp}] {line}{Environment.NewLine}");
 
-        // Cap history so the log doesn't grow forever
         var lines = _log.Lines;
         if (lines.Length > MaxLogLines)
-        {
             _log.Lines = lines.Skip(lines.Length - MaxLogLines).ToArray();
-        }
 
         _log.SelectionStart = _log.TextLength;
         _log.ScrollToCaret();
@@ -857,7 +932,6 @@ public sealed class MainForm : Form
         var s = value.Trim();
         if (s.StartsWith('v') || s.StartsWith('V'))
             s = s[1..];
-        // Assembly versions are Major.Minor.Build; tags may be the same
         return Version.TryParse(s, out var v) ? v : null;
     }
 
@@ -903,9 +977,6 @@ public sealed class MainForm : Form
                 RedirectStandardError = true,
                 CreateNoWindow = true
             };
-            // Discourage PS7 $PSStyle / VT color in redirected Format-Table output
-            psi.Environment["NO_COLOR"] = "1";
-            psi.Environment["TERM"] = "dumb";
 
             using var proc = new Process { StartInfo = psi, EnableRaisingEvents = true };
             var tcs = new TaskCompletionSource<int>();
@@ -942,7 +1013,6 @@ public sealed class MainForm : Form
 
     private Icon? LoadAppIcon()
     {
-        // Prefer multi-resolution icon (taskbar needs 16/24/32, not only 256)
         try
         {
             var asm = typeof(MainForm).Assembly;
