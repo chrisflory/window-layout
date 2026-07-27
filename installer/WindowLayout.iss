@@ -2,7 +2,7 @@
 ; Build: run ..\build-installer.ps1 (publishes GUI then compiles)
 
 #define MyAppName "Window Layout"
-#define MyAppVersion "2.0.5"
+#define MyAppVersion "2.0.6"
 #define MyAppPublisher "chrisflory"
 #define MyAppURL "https://github.com/chrisflory/window-layout"
 #define MyAppExeName "WindowLayout.exe"
@@ -44,7 +44,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Additional icons:"; Flags: unchecked
-Name: "installmodule"; Description: "Install VirtualDesktop PowerShell module (required once, needs internet)"; GroupDescription: "Components:"; Flags: checkedonce
+Name: "installmodule"; Description: "Install VirtualDesktop PowerShell module (required once, needs internet)"; GroupDescription: "Components:"
 ; Sign-in restore and PowerShell 7 are configured in the app (steps / More options) — not here.
 
 [Files]
