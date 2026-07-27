@@ -133,11 +133,17 @@ function Get-TitlePatterns {
   if ($null -eq $TitleMatch -or $TitleMatch -eq '') { return @() }
   # Allow string, array, or comma/semicolon-separated list
   if ($TitleMatch -is [System.Array]) {
-    return @($TitleMatch | ForEach-Object { "$_".Trim() } | Where-Object { $_ })
+    return @(
+      $TitleMatch | ForEach-Object { "$_".Trim() } | Where-Object {
+        $_ -and ($_ -notmatch '^::\{')
+      }
+    )
   }
   $s = "$TitleMatch"
+  # Shell CLSID folder paths are launch args, not window titles (e.g. Home)
+  if ($s -match '^::\{') { return @() }
   if ($s -match '[,;]') {
-    return @($s -split '[,;]' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+    return @($s -split '[,;]' | ForEach-Object { $_.Trim() } | Where-Object { $_ -and ($_ -notmatch '^::\{') })
   }
   return @($s)
 }
@@ -182,6 +188,8 @@ function Get-WindowSnapshot {
     $sb = New-Object System.Text.StringBuilder ($len + 1)
     [void][LayoutWin]::GetWindowText($hWnd, $sb, $sb.Capacity)
     $title = $sb.ToString()
+    # Desktop wallpaper host — never a managed Explorer folder window
+    if ($title -eq 'Program Manager') { return $true }
 
     $iconic = [LayoutWin]::IsIconic($hWnd)
     $r = New-Object LayoutWin+RECT
@@ -376,8 +384,6 @@ function Place-RuleWindow {
     return $false
   }
 
-  [void]$UsedHwnds.Add([int64]$win.Hwnd)
-
   # Move (may be no-op if already on this desktop from switch-then-launch)
   try {
     Move-Window -Desktop $DesktopObj -Hwnd $win.Hwnd | Out-Null
@@ -392,6 +398,7 @@ function Place-RuleWindow {
   for ($i = 1; $i -le 2; $i++) {
     $actual = Get-WindowDesktopName -Hwnd $win.Hwnd
     if ($actual -eq $Rule.desktop) {
+      [void]$UsedHwnds.Add([int64]$win.Hwnd)
       Write-Host "  OK hwnd=$($win.Hwnd) desktop=$actual"
       return $true
     }
@@ -404,6 +411,8 @@ function Place-RuleWindow {
   }
 
   $final = Get-WindowDesktopName -Hwnd $win.Hwnd
+  # Still claim the hwnd so the next rule doesn't keep re-targeting it
+  [void]$UsedHwnds.Add([int64]$win.Hwnd)
   Write-Warning "Still on '$final' after retries for $label"
   return $false
 }
@@ -493,11 +502,27 @@ if (-not $SkipLaunch) {
     $batch = @($pendingLaunch | Where-Object { $_.desktop -eq $deskName })
     Write-Host "Switch -> $deskName; launching $($batch.Count) app(s)..."
     Switch-Desktop -Desktop $desktopMap[$deskName] -NoAnimation | Out-Null
-    Start-Sleep -Milliseconds 120
+    Start-Sleep -Milliseconds 200
     foreach ($rule in $batch) {
       Write-Host "  launch $($rule.process) $(if ($rule.args) { $rule.args } else { '' })"
       Start-RuleProcess -Rule $rule
-      Start-Sleep -Milliseconds 40
+      Start-Sleep -Milliseconds 80
+    }
+
+    # Stay on this desktop until each app shows a real window. Chromium/Electron
+    # inherit whichever desktop is current when the first window is created — if
+    # we switch away too early, they land on the wrong desktop.
+    $launchReady = [System.Collections.Generic.HashSet[long]]::new()
+    foreach ($rule in $batch) {
+      $win = Wait-MatchingWindow -ProcessName $rule.process -TitleMatch $rule.titleMatch `
+        -TargetLeft ([int]$rule.left) -TargetTop ([int]$rule.top) `
+        -UsedHwnds $launchReady -TimeoutSec 45
+      if ($win) {
+        [void]$launchReady.Add([int64]$win.Hwnd)
+        Write-Host "  ready $($rule.process) hwnd=$($win.Hwnd)"
+      } else {
+        Write-Host "  not ready yet: $($rule.process) (will retry in place pass)"
+      }
     }
   }
 }
@@ -515,9 +540,13 @@ foreach ($rule in $rules) {
 if ($pendingPlace.Count -gt 0) {
   Write-Host "Waiting on $($pendingPlace.Count) window(s) still opening..."
   foreach ($rule in $pendingPlace) {
+    # Keep the target desktop current so late first-windows inherit correctly
+    try {
+      Switch-Desktop -Desktop $desktopMap[$rule.desktop] -NoAnimation | Out-Null
+    } catch {}
     $procUp = @(Get-Process -Name $rule.process -ErrorAction SilentlyContinue).Count -gt 0
-    # Missing process: fail fast (nothing to place). Slow UIs get a short poll budget.
-    $timeout = if (-not $procUp) { 1 } elseif ($rule.launch) { 15 } else { 8 }
+    # Missing process: fail fast. Slow Electron/Chromium UIs need a longer budget.
+    $timeout = if (-not $procUp) { 3 } elseif ($rule.launch) { 45 } else { 15 }
     [void](Place-RuleWindow -Rule $rule -DesktopObj $desktopMap[$rule.desktop] `
       -UsedHwnds $usedHwnds -TimeoutSec $timeout)
   }
@@ -531,14 +560,32 @@ $usedHwnds.Clear()
 foreach ($rule in $rules) {
   $win = Select-BestWindow -ProcessName $rule.process -TitleMatch $rule.titleMatch `
     -TargetLeft ([int]$rule.left) -TargetTop ([int]$rule.top) -UsedHwnds $usedHwnds
+  if (-not $win) {
+    # One more short wait — some apps recreate their window after first paint
+    $win = Wait-MatchingWindow -ProcessName $rule.process -TitleMatch $rule.titleMatch `
+      -TargetLeft ([int]$rule.left) -TargetTop ([int]$rule.top) -UsedHwnds $usedHwnds -TimeoutSec 8
+  }
   if (-not $win) { continue }
   [void]$usedHwnds.Add([int64]$win.Hwnd)
   $actual = Get-WindowDesktopName -Hwnd $win.Hwnd
-  if ($actual -ne $rule.desktop) {
-    Write-Host "Fixing $($rule.process): '$actual' -> '$($rule.desktop)'"
-    try {
-      Move-Window -Desktop $desktopMap[$rule.desktop] -Hwnd $win.Hwnd | Out-Null
-    } catch {}
+  $needsDesktop = ($actual -ne $rule.desktop)
+  $r = New-Object LayoutWin+RECT
+  [void][LayoutWin]::GetWindowRect($win.Hwnd, [ref]$r)
+  $needsGeo = (
+    [Math]::Abs($r.Left - [int]$rule.left) -gt 24 -or
+    [Math]::Abs($r.Top - [int]$rule.top) -gt 24 -or
+    [Math]::Abs(($r.Right - $r.Left) - [int]$rule.width) -gt 48 -or
+    [Math]::Abs(($r.Bottom - $r.Top) - [int]$rule.height) -gt 48
+  )
+  if ($needsDesktop -or $needsGeo) {
+    if ($needsDesktop) {
+      Write-Host "Fixing $($rule.process): '$actual' -> '$($rule.desktop)'"
+      try {
+        Move-Window -Desktop $desktopMap[$rule.desktop] -Hwnd $win.Hwnd | Out-Null
+      } catch {}
+    } else {
+      Write-Host "Fixing $($rule.process) geometry"
+    }
     Move-WindowToGeometry -Hwnd $win.Hwnd -Rule $rule
   }
 }

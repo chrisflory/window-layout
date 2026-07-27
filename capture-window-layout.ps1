@@ -244,7 +244,15 @@ $rules = foreach ($w in ($raw | Sort-Object Desktop, Process, Title)) {
     $path = "$env:SystemRoot\explorer.exe"
     if ($w.FolderPath) {
       $ruleArgs = $w.FolderPath
-      if (-not $titleMatch) { $titleMatch = Split-Path -Leaf $w.FolderPath }
+      if (-not $titleMatch) {
+        # CLSID shell folders (e.g. Home ::{F874...}) are not window titles
+        if ($w.FolderPath -match '^::\{') {
+          $titleMatch = if ($w.Title -match '^(.*?)\s+-\s+') { $Matches[1] } else { $w.Title }
+          if ($titleMatch.Length -gt 40) { $titleMatch = $titleMatch.Substring(0, 40) }
+        } else {
+          $titleMatch = Split-Path -Leaf $w.FolderPath
+        }
+      }
     } else {
       $ruleArgs = ''
     }
