@@ -118,12 +118,6 @@ public sealed class MainForm : Form
             Cursor = Cursors.Hand
         };
         _versionLabel.Click += async (_, _) => await CheckForUpdatesAsync(interactive: true);
-        void PlaceHeaderChrome()
-        {
-            var right = _header.ClientSize.Width - 28;
-            _btnTheme.Location = new Point(Math.Max(200, right - _btnTheme.Width), 26);
-            _versionLabel.Location = new Point(_btnTheme.Left - _versionLabel.PreferredWidth - 12, 30);
-        }
         _header.Controls.Add(_btnTheme);
         _header.Controls.Add(_versionLabel);
         _header.Resize += (_, _) => PlaceHeaderChrome();
@@ -736,23 +730,36 @@ public sealed class MainForm : Form
         }
 
         var logonText = logon ? "sign-in restore ON" : "sign-in restore off";
-        var updateBit = _updateTag is null ? "" : $"  ·  update {_updateTag}";
-        _statusLine.Text = disabled
-            ? $"  Stopped  ·  {rules} saved window(s)  ·  {logonText}{updateBit}"
-            : $"  {rules} window(s) saved  ·  {logonText}{updateBit}  ·  {DateTime.Now:t}";
-        _statusLine.ForeColor = disabled ? _theme.AccentWarn : _theme.TextMuted;
-
         if (_updateTag is not null)
         {
-            _versionLabel.Text = $"v{AppVersion} ↑";
-            _versionLabel.ForeColor = Color.FromArgb(250, 204, 21);
+            _statusLine.Text = $"  Update available: {_updateTag}  ·  click version or More options → Check for updates";
+            _statusLine.ForeColor = _themeMode == AppThemeMode.Dark
+                ? Color.FromArgb(250, 204, 21)
+                : Color.FromArgb(180, 83, 9);
+            _versionLabel.Text = $"v{AppVersion} ↑ {_updateTag}";
+            _versionLabel.ForeColor = _themeMode == AppThemeMode.Dark
+                ? Color.FromArgb(250, 204, 21)
+                : Color.FromArgb(180, 83, 9);
         }
         else
         {
+            _statusLine.Text = disabled
+                ? $"  Stopped  ·  {rules} saved window(s)  ·  {logonText}"
+                : $"  {rules} window(s) saved  ·  {logonText}  ·  {DateTime.Now:t}";
+            _statusLine.ForeColor = disabled ? _theme.AccentWarn : _theme.TextMuted;
             _versionLabel.Text = $"v{AppVersion}";
             _versionLabel.ForeColor = _theme.TextVersion;
         }
         _versionLabel.Cursor = Cursors.Hand;
+        PlaceHeaderChrome();
+    }
+
+    private void PlaceHeaderChrome()
+    {
+        var right = _header.ClientSize.Width - 28;
+        _btnTheme.Location = new Point(Math.Max(200, right - _btnTheme.Width), 26);
+        _versionLabel.Location = new Point(
+            Math.Max(120, _btnTheme.Left - _versionLabel.PreferredWidth - 12), 30);
     }
 
     private void Highlight(SoftButton focus)
@@ -837,15 +844,16 @@ public sealed class MainForm : Form
             using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
             client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", $"WindowLayout/{AppVersion}");
             client.DefaultRequestHeaders.TryAddWithoutValidation("Accept", "application/vnd.github+json");
+            client.DefaultRequestHeaders.TryAddWithoutValidation("X-GitHub-Api-Version", "2022-11-28");
 
             using var resp = await client.GetAsync(GitHubLatestApi).ConfigureAwait(true);
             if (!resp.IsSuccessStatusCode)
             {
+                var msg = $"Could not check for updates (HTTP {(int)resp.StatusCode}).";
+                AppendLog(msg);
                 if (interactive)
                 {
-                    MessageBox.Show(this,
-                        $"Could not check for updates (HTTP {(int)resp.StatusCode}).",
-                        "Window Layout", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    MessageBox.Show(this, msg, "Window Layout", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 }
                 return;
             }
@@ -856,10 +864,11 @@ public sealed class MainForm : Form
             var url = root.TryGetProperty("html_url", out var urlEl) ? urlEl.GetString() : GitHubRepoUrl;
             if (string.IsNullOrWhiteSpace(tag))
             {
+                const string msg = "Could not read the latest release from GitHub.";
+                AppendLog(msg);
                 if (interactive)
                 {
-                    MessageBox.Show(this, "Could not read the latest release from GitHub.",
-                        "Window Layout", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    MessageBox.Show(this, msg, "Window Layout", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 }
                 return;
             }
@@ -868,12 +877,24 @@ public sealed class MainForm : Form
             var current = ParseVersion(AppVersion);
             if (latest is null || current is null)
             {
+                var msg = $"Unexpected version format (latest={tag}, current={AppVersion}).";
+                AppendLog(msg);
                 if (interactive)
                 {
-                    MessageBox.Show(this, $"Unexpected version format (latest={tag}, current={AppVersion}).",
-                        "Window Layout", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    MessageBox.Show(this, msg, "Window Layout", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 }
                 return;
+            }
+
+            // Drop a stale dismiss once we're already on/past that release
+            if (_dismissedUpdateTag is not null)
+            {
+                var dismissed = ParseVersion(_dismissedUpdateTag);
+                if (dismissed is null || dismissed <= current)
+                {
+                    _dismissedUpdateTag = null;
+                    SaveWindowBounds();
+                }
             }
 
             if (latest <= current)
@@ -881,6 +902,7 @@ public sealed class MainForm : Form
                 _updateTag = null;
                 _updateUrl = null;
                 RefreshUiState();
+                AppendLog($"Up to date (v{AppVersion}).");
                 if (interactive)
                 {
                     MessageBox.Show(this,
@@ -890,16 +912,19 @@ public sealed class MainForm : Form
                 return;
             }
 
-            _updateTag = tag.StartsWith('v') || tag.StartsWith('V') ? tag : "v" + tag;
+            _updateTag = NormalizeTag(tag);
             _updateUrl = string.IsNullOrWhiteSpace(url) ? GitHubRepoUrl : url;
             RefreshUiState();
+            AppendLog($"Update available: {_updateTag} (you have v{AppVersion}).");
 
+            // Silent startup: keep status/version/log visible; skip dialog only if user dismissed this tag
             if (!interactive &&
                 string.Equals(_dismissedUpdateTag, _updateTag, StringComparison.OrdinalIgnoreCase))
             {
                 return;
             }
 
+            // Manual "Check for updates" / version click always shows a result dialog
             var answer = MessageBox.Show(this,
                 $"A newer version is available: {_updateTag}\n\nYou have v{AppVersion}.\n\nOpen the download page?",
                 "Update available",
@@ -908,6 +933,8 @@ public sealed class MainForm : Form
 
             if (answer == DialogResult.Yes)
             {
+                _dismissedUpdateTag = null;
+                SaveWindowBounds();
                 Process.Start(new ProcessStartInfo { FileName = _updateUrl, UseShellExecute = true });
             }
             else
@@ -918,6 +945,7 @@ public sealed class MainForm : Form
         }
         catch (Exception ex)
         {
+            AppendLog("Update check failed: " + ex.Message);
             if (interactive)
             {
                 MessageBox.Show(this,
@@ -927,12 +955,18 @@ public sealed class MainForm : Form
         }
     }
 
+    private static string NormalizeTag(string tag) =>
+        tag.StartsWith('v') || tag.StartsWith('V') ? tag : "v" + tag;
+
     private static Version? ParseVersion(string value)
     {
         var s = value.Trim();
         if (s.StartsWith('v') || s.StartsWith('V'))
             s = s[1..];
-        return Version.TryParse(s, out var v) ? v : null;
+        // Tags and AssemblyName versions are Major.Minor.Build — ignore any 4th component
+        if (Version.TryParse(s, out var v))
+            return new Version(v.Major, v.Minor, Math.Max(v.Build, 0));
+        return null;
     }
 
     private async Task<int> RunScriptAsync(string scriptName, params string[] extraArgs)
