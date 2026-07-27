@@ -99,10 +99,12 @@ internal sealed class SoftButton : Button
         g.PixelOffsetMode = PixelOffsetMode.HighQuality;
         g.Clear(Parent?.BackColor ?? Color.FromArgb(11, 18, 32));
 
-        var shadowOffset = _pressed ? 1 : 3;
+        // Keep a thin bottom shadow band; avoid shrinking body/text so glyphs (esp. on
+        // short buttons like the theme toggle) are not clipped by VerticalCenter.
+        var shadowDepth = _pressed ? 1 : 2;
         var bodyOffset = _pressed ? 1 : 0;
-        var shadowRect = new Rectangle(2, shadowOffset + 1, Width - 6, Height - 5);
-        var bodyRect = new Rectangle(1, bodyOffset, Width - 6, Height - 5 - bodyOffset);
+        var bodyRect = new Rectangle(1, bodyOffset, Width - 4, Height - shadowDepth - 1 - bodyOffset);
+        var shadowRect = new Rectangle(2, bodyRect.Y + shadowDepth, Width - 6, bodyRect.Height);
 
         using (var shadowPath = RoundedRect(shadowRect, _cornerRadius))
         using (var shadowBrush = new SolidBrush(Color.FromArgb(Enabled ? 55 : 25, 0, 0, 0)))
@@ -143,7 +145,11 @@ internal sealed class SoftButton : Button
             }
         }
 
-        var textRect = Rectangle.Inflate(bodyRect, -14, -6);
+        var padX = Math.Min(14, Math.Max(6, bodyRect.Width / 10));
+        var padY = bodyRect.Height >= 44 ? 6 : (bodyRect.Height >= 28 ? 2 : 1);
+        var textRect = Rectangle.Inflate(bodyRect, -padX, -padY);
+        if (textRect.Height < 1) textRect.Height = Math.Max(1, bodyRect.Height);
+        if (textRect.Width < 1) textRect.Width = Math.Max(1, bodyRect.Width);
         var textColor = Enabled ? ForeColor : Color.FromArgb(148, 163, 184);
         var flags = TextFormatFlags.WordBreak | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis;
         flags |= TextAlign is ContentAlignment.MiddleLeft or ContentAlignment.TopLeft or ContentAlignment.BottomLeft

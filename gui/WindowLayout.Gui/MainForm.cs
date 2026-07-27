@@ -103,7 +103,7 @@ public sealed class MainForm : Form
         _header.Controls.Add(_titleLabel);
 
         _btnTheme = SmallButton("Light", 0, 0, _theme.BtnMuted);
-        _btnTheme.Size = new Size(72, 28);
+        _btnTheme.Size = new Size(76, 30);
         _btnTheme.CornerRadius = 8;
         _btnTheme.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         _btnTheme.Click += (_, _) => ToggleTheme();
@@ -152,7 +152,7 @@ public sealed class MainForm : Form
         _btnClearLog = SmallButton("Clear log", 0, 0, _theme.BtnMuted);
         _btnClearLog.Dock = DockStyle.Right;
         _btnClearLog.Width = 104;
-        _btnClearLog.Height = 28;
+        _btnClearLog.Height = 30;
         _btnClearLog.CornerRadius = 8;
         _btnClearLog.Click += (_, _) => { _log.Clear(); };
         _bottomBar.Controls.Add(_statusLine);
