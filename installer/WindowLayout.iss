@@ -2,7 +2,7 @@
 ; Build: run ..\build-installer.ps1 (publishes GUI then compiles)
 
 #define MyAppName "Window Layout"
-#define MyAppVersion "2.0.3"
+#define MyAppVersion "2.0.4"
 #define MyAppPublisher "chrisflory"
 #define MyAppURL "https://github.com/chrisflory/window-layout"
 #define MyAppExeName "WindowLayout.exe"
@@ -57,6 +57,7 @@ Source: "..\list-window-layout.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\register-logon-task.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\refresh-local-module.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\setup.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\uninstall-virtualdesktop.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\install-powershell7.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\window-layout.rules.json"; DestDir: "{app}"; Flags: ignoreversion onlyifdoesntexist
 Source: "..\DISABLE-LAYOUT.example"; DestDir: "{app}"; Flags: ignoreversion
@@ -86,6 +87,7 @@ Filename: "{app}\{#MyAppExeName}"; Description: "Open Window Layout now"; Flags:
 
 [UninstallRun]
 Filename: "{app}\run-powershell.cmd"; Parameters: "-File ""{app}\register-logon-task.ps1"" -Unregister"; Flags: runhidden waituntilterminated; RunOnceId: UnregLayoutTask
+Filename: "{app}\run-powershell.cmd"; Parameters: "-File ""{app}\uninstall-virtualdesktop.ps1"""; StatusMsg: "Removing VirtualDesktop module..."; Flags: runhidden waituntilterminated; RunOnceId: RemoveVirtualDesktop
 
 [UninstallDelete]
 Type: files; Name: "{app}\apply-window-layout.log"
