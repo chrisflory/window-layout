@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Net.Http;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -9,6 +10,7 @@ public sealed class MainForm : Form
 {
     private readonly Label _nextHint = new();
     private readonly Label _statusLine = new();
+    private readonly Label _versionLabel = new();
     private readonly TextBox _log = new();
     private readonly Button _btn1;
     private readonly Button _btn2;
@@ -17,8 +19,12 @@ public sealed class MainForm : Form
     private bool _busy;
     private bool _advancedOpen;
     private bool _firstRunPending;
+    private string? _updateTag;
+    private string? _updateUrl;
+    private string? _dismissedUpdateTag;
 
     private const string GitHubRepoUrl = "https://github.com/chrisflory/window-layout";
+    private const string GitHubLatestApi = "https://api.github.com/repos/chrisflory/window-layout/releases/latest";
 
     private static string AppVersion =>
         typeof(MainForm).Assembly.GetName().Version?.ToString(3) ?? "?";
@@ -77,14 +83,14 @@ public sealed class MainForm : Form
             Location = new Point(appIcon is null ? 28 : 92, 20),
             ForeColor = Color.White
         });
-        var versionLabel = new Label
-        {
-            Text = $"v{AppVersion}",
-            Font = new Font("Segoe UI", 10f),
-            AutoSize = true,
-            Anchor = AnchorStyles.Top | AnchorStyles.Right,
-            ForeColor = Color.FromArgb(100, 116, 139)
-        };
+        var versionLabel = _versionLabel;
+        versionLabel.Text = $"v{AppVersion}";
+        versionLabel.Font = new Font("Segoe UI", 10f);
+        versionLabel.AutoSize = true;
+        versionLabel.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+        versionLabel.ForeColor = Color.FromArgb(100, 116, 139);
+        versionLabel.Cursor = Cursors.Hand;
+        versionLabel.Click += async (_, _) => await CheckForUpdatesAsync(interactive: true);
         // Place after header is sized; adjust on resize
         void PlaceVersion()
         {
@@ -209,6 +215,7 @@ public sealed class MainForm : Form
         var btnRepair = SmallButton("Repair / setup module", 460, 48, Color.FromArgb(71, 85, 105));
         var btnPs7 = SmallButton("Install PowerShell 7", 0, 96, Color.FromArgb(30, 64, 175));
         var btnAbout = SmallButton("About / version", 230, 96, Color.FromArgb(71, 85, 105));
+        var btnUpdate = SmallButton("Check for updates", 460, 96, Color.FromArgb(30, 64, 175));
 
         btnOff.Click += async (_, _) =>
         {
@@ -244,15 +251,19 @@ public sealed class MainForm : Form
         };
         btnAbout.Click += (_, _) =>
         {
+            var updateNote = _updateTag is null
+                ? ""
+                : $"\n\nUpdate available: {_updateTag}";
             MessageBox.Show(this,
-                $"Window Layout {AppVersion}\n\nInstall folder:\n{AppDir}\n\n{GitHubRepoUrl}",
+                $"Window Layout {AppVersion}{updateNote}\n\nInstall folder:\n{AppDir}\n\n{GitHubRepoUrl}",
                 "About Window Layout", MessageBoxButtons.OK, MessageBoxIcon.Information);
         };
+        btnUpdate.Click += async (_, _) => await CheckForUpdatesAsync(interactive: true);
 
         _advancedPanel.Controls.AddRange([
             btnOff, btnList, btnFolder,
             btnKill, btnClear, btnRepair,
-            btnPs7, btnAbout
+            btnPs7, btnAbout, btnUpdate
         ]);
 
         void RelayoutSteps()
@@ -329,6 +340,7 @@ public sealed class MainForm : Form
             RefreshUiState();
             AppendLog("Arrange your windows, then follow steps 1 → 2 → 3.");
             await OfferFirstRunSetupAsync();
+            await CheckForUpdatesAsync(interactive: false);
         };
     }
 
@@ -341,6 +353,7 @@ public sealed class MainForm : Form
         public string WindowState { get; set; } = "Normal";
         public bool AdvancedOpen { get; set; }
         public bool FirstRunDone { get; set; }
+        public string? DismissedUpdateTag { get; set; }
     }
 
     private void RestoreWindowBounds()
@@ -376,6 +389,7 @@ public sealed class MainForm : Form
 
             _advancedOpen = state.AdvancedOpen;
             _firstRunPending = !state.FirstRunDone;
+            _dismissedUpdateTag = state.DismissedUpdateTag;
         }
         catch
         {
@@ -408,7 +422,8 @@ public sealed class MainForm : Form
                 Height = r.Height,
                 WindowState = WindowState == FormWindowState.Minimized ? "Normal" : WindowState.ToString(),
                 AdvancedOpen = _advancedOpen,
-                FirstRunDone = prevDone || !_firstRunPending
+                FirstRunDone = prevDone || !_firstRunPending,
+                DismissedUpdateTag = _dismissedUpdateTag
             };
             File.WriteAllText(UiStatePath, JsonSerializer.Serialize(state, new JsonSerializerOptions { WriteIndented = true }));
         }
@@ -631,10 +646,31 @@ public sealed class MainForm : Form
         }
 
         var logonText = logon ? "sign-in restore ON" : "sign-in restore off";
+        var updateBit = _updateTag is null ? "" : $"  ·  update {_updateTag}";
         _statusLine.Text = disabled
-            ? $"  Stopped  ·  {rules} saved window(s)  ·  {logonText}"
-            : $"  {rules} window(s) saved  ·  {logonText}  ·  {DateTime.Now:t}";
+            ? $"  Stopped  ·  {rules} saved window(s)  ·  {logonText}{updateBit}"
+            : $"  {rules} window(s) saved  ·  {logonText}{updateBit}  ·  {DateTime.Now:t}";
         _statusLine.ForeColor = disabled ? Color.FromArgb(252, 165, 165) : Color.FromArgb(148, 163, 184);
+
+        if (_updateTag is not null)
+        {
+            _versionLabel.Text = $"v{AppVersion} ↑";
+            _versionLabel.ForeColor = Color.FromArgb(250, 204, 21);
+            _versionLabel.Cursor = Cursors.Hand;
+        }
+        else
+        {
+            _versionLabel.Text = $"v{AppVersion}";
+            _versionLabel.ForeColor = Color.FromArgb(100, 116, 139);
+            _versionLabel.Cursor = Cursors.Hand;
+        }
+
+        if (_versionLabel.Parent is Control header)
+        {
+            _versionLabel.Location = new Point(
+                Math.Max(200, header.ClientSize.Width - _versionLabel.PreferredWidth - 28),
+                28);
+        }
     }
 
     private void Highlight(Button focus)
@@ -694,8 +730,17 @@ public sealed class MainForm : Form
 
     private const int MaxLogLines = 500;
 
+    // CSI / SGR color codes from PowerShell Format-Table ($PSStyle) — TextBox can't render them
+    private static readonly Regex AnsiEscapeRegex = new(
+        @"\u001B\[[0-9;?]*[ -/]*[@-~]|\u001B\][^\u0007]*(?:\u0007|\u001B\\)|\u001B[@-Z\\-_]",
+        RegexOptions.Compiled);
+
+    private static string StripAnsi(string text) =>
+        string.IsNullOrEmpty(text) ? text : AnsiEscapeRegex.Replace(text, "");
+
     private void AppendLog(string line)
     {
+        line = StripAnsi(line);
         var stamp = DateTime.Now.ToString("HH:mm:ss");
         _log.AppendText($"[{stamp}] {line}{Environment.NewLine}");
 
@@ -708,6 +753,112 @@ public sealed class MainForm : Form
 
         _log.SelectionStart = _log.TextLength;
         _log.ScrollToCaret();
+    }
+
+    private async Task CheckForUpdatesAsync(bool interactive)
+    {
+        try
+        {
+            using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+            client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", $"WindowLayout/{AppVersion}");
+            client.DefaultRequestHeaders.TryAddWithoutValidation("Accept", "application/vnd.github+json");
+
+            using var resp = await client.GetAsync(GitHubLatestApi).ConfigureAwait(true);
+            if (!resp.IsSuccessStatusCode)
+            {
+                if (interactive)
+                {
+                    MessageBox.Show(this,
+                        $"Could not check for updates (HTTP {(int)resp.StatusCode}).",
+                        "Window Layout", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                }
+                return;
+            }
+
+            using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync().ConfigureAwait(true));
+            var root = doc.RootElement;
+            var tag = root.TryGetProperty("tag_name", out var tagEl) ? tagEl.GetString() : null;
+            var url = root.TryGetProperty("html_url", out var urlEl) ? urlEl.GetString() : GitHubRepoUrl;
+            if (string.IsNullOrWhiteSpace(tag))
+            {
+                if (interactive)
+                {
+                    MessageBox.Show(this, "Could not read the latest release from GitHub.",
+                        "Window Layout", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                }
+                return;
+            }
+
+            var latest = ParseVersion(tag);
+            var current = ParseVersion(AppVersion);
+            if (latest is null || current is null)
+            {
+                if (interactive)
+                {
+                    MessageBox.Show(this, $"Unexpected version format (latest={tag}, current={AppVersion}).",
+                        "Window Layout", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                }
+                return;
+            }
+
+            if (latest <= current)
+            {
+                _updateTag = null;
+                _updateUrl = null;
+                RefreshUiState();
+                if (interactive)
+                {
+                    MessageBox.Show(this,
+                        $"You’re on the latest version ({AppVersion}).",
+                        "Window Layout", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+                return;
+            }
+
+            _updateTag = tag.StartsWith('v') || tag.StartsWith('V') ? tag : "v" + tag;
+            _updateUrl = string.IsNullOrWhiteSpace(url) ? GitHubRepoUrl : url;
+            RefreshUiState();
+
+            if (!interactive &&
+                string.Equals(_dismissedUpdateTag, _updateTag, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            var answer = MessageBox.Show(this,
+                $"A newer version is available: {_updateTag}\n\nYou have v{AppVersion}.\n\nOpen the download page?",
+                "Update available",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Information);
+
+            if (answer == DialogResult.Yes)
+            {
+                Process.Start(new ProcessStartInfo { FileName = _updateUrl, UseShellExecute = true });
+            }
+            else
+            {
+                _dismissedUpdateTag = _updateTag;
+                SaveWindowBounds();
+            }
+        }
+        catch (Exception ex)
+        {
+            if (interactive)
+            {
+                MessageBox.Show(this,
+                    "Update check failed:\n" + ex.Message,
+                    "Window Layout", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+        }
+    }
+
+    private static Version? ParseVersion(string value)
+    {
+        var s = value.Trim();
+        if (s.StartsWith('v') || s.StartsWith('V'))
+            s = s[1..];
+        // Assembly versions are Major.Minor.Build; tags may be the same
+        return Version.TryParse(s, out var v) ? v : null;
     }
 
     private async Task<int> RunScriptAsync(string scriptName, params string[] extraArgs)
@@ -752,6 +903,9 @@ public sealed class MainForm : Form
                 RedirectStandardError = true,
                 CreateNoWindow = true
             };
+            // Discourage PS7 $PSStyle / VT color in redirected Format-Table output
+            psi.Environment["NO_COLOR"] = "1";
+            psi.Environment["TERM"] = "dumb";
 
             using var proc = new Process { StartInfo = psi, EnableRaisingEvents = true };
             var tcs = new TaskCompletionSource<int>();
