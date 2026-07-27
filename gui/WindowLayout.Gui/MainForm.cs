@@ -408,9 +408,23 @@ public sealed class MainForm : Form
     {
         if (!_firstRunPending) return;
 
+        var hasModule = HasVirtualDesktopModule();
+        var hasPs7 = HasPowerShell7();
+
+        // Already set up (common after upgrade / reinstall) — don't nag
+        if (hasModule)
+        {
+            AppendLog(hasPs7
+                ? "Setup already complete (VirtualDesktop module + PowerShell 7 found)."
+                : "VirtualDesktop module already installed — skipping setup prompts.");
+            MarkFirstRunDone();
+            return;
+        }
+
         var result = MessageBox.Show(this,
             "Welcome to Window Layout.\n\n" +
-            "Install the VirtualDesktop PowerShell module now? (needed for Capture / Apply; requires internet)\n\n" +
+            "Install the VirtualDesktop PowerShell module now?\n" +
+            "(This is a gallery module for virtual desktops — not PowerShell 7. Needs internet.)\n\n" +
             "You can also do this later under More options → Repair / setup module.",
             "Window Layout setup",
             MessageBoxButtons.YesNo,
@@ -418,8 +432,7 @@ public sealed class MainForm : Form
 
         if (result == DialogResult.Yes)
         {
-            // Only offer PS7 if pwsh is not already available
-            if (!HasPowerShell7())
+            if (!hasPs7)
             {
                 var ps7 = MessageBox.Show(this,
                     "PowerShell 7 was not found.\n\nInstall it via winget? (optional — Windows PowerShell 5.1 works too)",
@@ -429,15 +442,63 @@ public sealed class MainForm : Form
                 if (ps7 == DialogResult.Yes)
                     await RunScriptAsync("install-powershell7.ps1");
             }
-            else
-            {
-                AppendLog("PowerShell 7 already present — skipping PS7 install prompt.");
-            }
 
             await RunScriptAsync("setup.ps1");
         }
 
         MarkFirstRunDone();
+    }
+
+    private static bool HasVirtualDesktopModule()
+    {
+        try
+        {
+            var docs = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+            var roots = new[]
+            {
+                Path.Combine(docs, "PowerShell", "Modules", "VirtualDesktop"),
+                Path.Combine(docs, "WindowsPowerShell", "Modules", "VirtualDesktop"),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "PowerShell", "Modules", "VirtualDesktop"),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "WindowsPowerShell", "Modules", "VirtualDesktop"),
+            };
+            if (roots.Any(Directory.Exists)) return true;
+
+            // Fall back to Get-Module (covers OneDrive / custom PSModulePath)
+            foreach (var shell in new[] { "pwsh", "powershell" })
+            {
+                try
+                {
+                    var psi = new ProcessStartInfo
+                    {
+                        FileName = shell,
+                        Arguments = "-NoProfile -Command \"if (Get-Module VirtualDesktop -ListAvailable) { '1' }\"",
+                        UseShellExecute = false,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true,
+                        CreateNoWindow = true
+                    };
+                    using var p = Process.Start(psi);
+                    if (p is null) continue;
+                    var output = (p.StandardOutput.ReadToEnd() ?? "").Trim();
+                    if (!p.WaitForExit(8000))
+                    {
+                        try { p.Kill(entireProcessTree: true); } catch { /* ignore */ }
+                        continue;
+                    }
+                    if (output.StartsWith('1')) return true;
+                }
+                catch
+                {
+                    // try next shell
+                }
+            }
+        }
+        catch
+        {
+            // treat as missing
+        }
+
+        return false;
     }
 
     private static bool HasPowerShell7()
