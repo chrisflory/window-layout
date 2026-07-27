@@ -20,6 +20,9 @@ public sealed class MainForm : Form
 
     private const string GitHubRepoUrl = "https://github.com/chrisflory/window-layout";
 
+    private static string AppVersion =>
+        typeof(MainForm).Assembly.GetName().Version?.ToString(3) ?? "?";
+
     private string AppDir => AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
     private string RulesPath => Path.Combine(AppDir, "window-layout.rules.json");
     private string DisableFlag => Path.Combine(AppDir, "DISABLE-LAYOUT");
@@ -27,7 +30,7 @@ public sealed class MainForm : Form
 
     public MainForm()
     {
-        Text = "Window Layout";
+        Text = $"Window Layout {AppVersion}";
         Width = 760;
         Height = 640;
         MinimumSize = new Size(700, 560);
@@ -74,6 +77,24 @@ public sealed class MainForm : Form
             Location = new Point(appIcon is null ? 28 : 92, 20),
             ForeColor = Color.White
         });
+        var versionLabel = new Label
+        {
+            Text = $"v{AppVersion}",
+            Font = new Font("Segoe UI", 10f),
+            AutoSize = true,
+            Anchor = AnchorStyles.Top | AnchorStyles.Right,
+            ForeColor = Color.FromArgb(100, 116, 139)
+        };
+        // Place after header is sized; adjust on resize
+        void PlaceVersion()
+        {
+            versionLabel.Location = new Point(
+                Math.Max(200, header.ClientSize.Width - versionLabel.PreferredWidth - 28),
+                28);
+        }
+        header.Controls.Add(versionLabel);
+        header.Resize += (_, _) => PlaceVersion();
+        PlaceVersion();
         header.Controls.Add(new Label
         {
             Text = "Save where your windows live, then restore them — including at sign-in.",
@@ -223,9 +244,8 @@ public sealed class MainForm : Form
         };
         btnAbout.Click += (_, _) =>
         {
-            var ver = typeof(MainForm).Assembly.GetName().Version?.ToString(3) ?? "?";
             MessageBox.Show(this,
-                $"Window Layout {ver}\n\nInstall folder:\n{AppDir}\n\n{GitHubRepoUrl}",
+                $"Window Layout {AppVersion}\n\nInstall folder:\n{AppDir}\n\n{GitHubRepoUrl}",
                 "About Window Layout", MessageBoxButtons.OK, MessageBoxIcon.Information);
         };
 
