@@ -55,7 +55,7 @@ Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger `
   -Settings $settings -Principal $principal `
   -Description 'Restore virtual-desktop window layout after logon (silent)' | Out-Null
 
-Write-Host "Registered '$TaskName' (at logon +2s, apply delay 3s, silent via wscript) for $env:USERNAME"
+Write-Host "Registered '$TaskName' (at logon +2s, apply delay 5s + -Logon, silent via wscript) for $env:USERNAME"
 Write-Host "Launcher: $wscript $arg"
 Write-Host "Apply script: $ApplyScript"
 Get-ScheduledTask -TaskName $TaskName | Select-Object TaskName, State

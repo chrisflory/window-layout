@@ -1,13 +1,16 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-  Apply saved window-layout.rules.json: ensure desktops, launch apps, place windows.
+  Apply saved window-layout.rules.json: match named desktops, launch apps, place windows.
 
 .DESCRIPTION
   Apps inherit the CURRENT virtual desktop when they create their first window.
   Launching everything from one desktop then Move-Window
   is unreliable for Chromium/Electron. This script switches to each target
   desktop before launching that desktop's apps, then verifies placement.
+
+  Never creates, renames, removes, or reorders virtual desktops. Missing named
+  desktops are warned and skipped so Task View order stays under user control.
 
 .PARAMETER RulesFile
   Path to rules JSON.
@@ -21,6 +24,9 @@
 .PARAMETER DelaySeconds
   Extra wait before applying (overrides rules startupDelaySeconds when set).
 
+.PARAMETER Logon
+  Conservative settle/place timings for the silent logon task (correctness over speed).
+
 .PARAMETER LogFile
   Transcript log path. Pass '' to disable logging.
 #>
@@ -30,6 +36,7 @@ param(
   [switch]$SkipLaunch,
   [switch]$Follow,
   [Nullable[int]]$DelaySeconds = $null,
+  [switch]$Logon,
   [string]$LogFile = (Join-Path $PSScriptRoot 'apply-window-layout.log')
 )
 
@@ -118,14 +125,34 @@ public static class LayoutWin {
 }
 '@
 
-function Ensure-NamedDesktop {
+function Resolve-NamedDesktop {
   param([string]$Name)
+  # Exact name match only. Never New-Desktop / Set-DesktopName / Move-Desktop —
+  # creating a desktop appends (or inserts) and scrambles the user's Task View order.
   $hit = @(Get-DesktopList) | Where-Object { $_.Name -eq $Name } | Select-Object -First 1
   if ($hit) {
     return (Get-Desktop ([int]$hit.Number))
   }
-  Write-Host "Creating desktop '$Name'..."
-  return (New-Desktop | Set-DesktopName -Name $Name -PassThru)
+  Write-Warning "Desktop '$Name' not found — skipping rules for it (will not create/reorder desktops)."
+  return $null
+}
+
+function Invoke-StartProcessSafe {
+  param(
+    [string]$FilePath,
+    [string]$ArgumentList = $null
+  )
+  try {
+    if ($null -ne $ArgumentList -and $ArgumentList -ne '') {
+      Start-Process -FilePath $FilePath -ArgumentList $ArgumentList -ErrorAction Stop | Out-Null
+    } else {
+      Start-Process -FilePath $FilePath -ErrorAction Stop | Out-Null
+    }
+    return $true
+  } catch {
+    Write-Warning "Start-Process failed: $FilePath — $($_.Exception.Message)"
+    return $false
+  }
 }
 
 function Get-TitlePatterns {
@@ -310,30 +337,39 @@ function Start-RuleProcess {
   }
   # Outlook / Store apps use explorer.exe only as a launcher for shell:AppsFolder\...
   if ($Rule.useExplorer -or ($Rule.path -like 'shell:AppsFolder\*')) {
-    Start-Process -FilePath explorer.exe -ArgumentList $Rule.path | Out-Null
+    [void](Invoke-StartProcessSafe -FilePath explorer.exe -ArgumentList $Rule.path)
     return
   }
   # File Explorer folder window: explorer.exe "C:\path"
   if ($Rule.process -eq 'explorer') {
     if ($Rule.args) {
-      Start-Process -FilePath explorer.exe -ArgumentList "`"$($Rule.args)`"" | Out-Null
+      [void](Invoke-StartProcessSafe -FilePath explorer.exe -ArgumentList "`"$($Rule.args)`"")
     } else {
       Write-Warning "Explorer rule has no folder path; place-only"
     }
     return
   }
   if ($Rule.useShellExecute -or ($Rule.path -match '^[a-z]+:')) {
-    Start-Process -FilePath $Rule.path | Out-Null
+    [void](Invoke-StartProcessSafe -FilePath $Rule.path)
     return
   }
   if (-not (Test-Path -LiteralPath $Rule.path)) {
     Write-Warning "Path missing for $($Rule.process): $($Rule.path)"
     return
   }
+
+  # Packaged apps under WindowsApps often deny direct CreateProcess (Access Denied).
+  # Prefer shell execute / explorer fallback so one bad Store path cannot abort apply.
+  $isWindowsApps = ($Rule.path -like '*\WindowsApps\*')
+  $ok = $false
   if ($Rule.args) {
-    Start-Process -FilePath $Rule.path -ArgumentList $Rule.args | Out-Null
+    $ok = Invoke-StartProcessSafe -FilePath $Rule.path -ArgumentList $Rule.args
   } else {
-    Start-Process -FilePath $Rule.path | Out-Null
+    $ok = Invoke-StartProcessSafe -FilePath $Rule.path
+  }
+  if (-not $ok -and $isWindowsApps) {
+    Write-Host "  retry via explorer (packaged app): $($Rule.process)"
+    [void](Invoke-StartProcessSafe -FilePath explorer.exe -ArgumentList "`"$($Rule.path)`"")
   }
 }
 
@@ -423,10 +459,16 @@ if (-not (Test-Path -LiteralPath $RulesFile)) {
 }
 
 $doc = Get-Content -LiteralPath $RulesFile -Raw | ConvertFrom-Json
+# Logon task always passes -Logon; also treat a positive DelaySeconds from the
+# silent launcher as logon-conservative when -Logon was omitted by older VBS.
+$isLogon = [bool]$Logon -or (($null -ne $DelaySeconds) -and ([int]$DelaySeconds -gt 0))
 $delay = if ($null -ne $DelaySeconds) { [int]$DelaySeconds } elseif ($null -ne $doc.startupDelaySeconds) { [int]$doc.startupDelaySeconds } else { 0 }
 if ($delay -gt 0) {
   Write-Host "Waiting ${delay}s before applying layout..."
   Start-Sleep -Seconds $delay
+}
+if ($isLogon) {
+  Write-Host "Logon mode: match existing named desktops only; longer settle/place waits."
 }
 
 $rules = @($doc.rules | Where-Object {
@@ -439,11 +481,33 @@ if ($rules.Count -eq 0) {
 
 $startDesktop = Get-CurrentDesktop
 
-# Ensure all target desktops exist
+# Resolve target desktops by exact name only — never create/rename/reorder.
 $desktopMap = @{}
+$missingDesktops = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
 foreach ($d in ($rules.desktop | Select-Object -Unique)) {
-  $desktopMap[$d] = Ensure-NamedDesktop -Name $d
+  $resolved = Resolve-NamedDesktop -Name $d
+  if ($null -eq $resolved) {
+    [void]$missingDesktops.Add([string]$d)
+  } else {
+    $desktopMap[$d] = $resolved
+  }
 }
+if ($missingDesktops.Count -gt 0) {
+  $skipped = @($rules | Where-Object { $missingDesktops.Contains([string]$_.desktop) }).Count
+  Write-Warning ("Skipping {0} rule(s) on missing desktop(s): {1}" -f $skipped, (($missingDesktops | Sort-Object) -join ', '))
+  $rules = @($rules | Where-Object { -not $missingDesktops.Contains([string]$_.desktop) })
+}
+if ($rules.Count -eq 0) {
+  Write-Warning 'No rules left after desktop name matching — nothing to apply.'
+  return
+}
+
+# Settle timings: logon prefers correctness; interactive GUI (-DelaySeconds 0) stays snappy.
+$switchSettleMs = if ($isLogon) { 500 } else { 200 }
+$launchGapMs = if ($isLogon) { 200 } else { 80 }
+$launchReadyTimeout = if ($isLogon) { 60 } else { 45 }
+$placeQuickTimeout = if ($isLogon) { 3 } else { 0 }
+$placeSlowTimeout = if ($isLogon) { 60 } else { 45 }
 
 $usedHwnds = [System.Collections.Generic.HashSet[long]]::new()
 $applyStarted = Get-Date
@@ -514,11 +578,11 @@ if (-not $SkipLaunch) {
     $batch = @($pendingLaunch | Where-Object { $_.desktop -eq $deskName })
     Write-Host "Switch -> $deskName; launching $($batch.Count) app(s)..."
     Switch-Desktop -Desktop $desktopMap[$deskName] -NoAnimation | Out-Null
-    Start-Sleep -Milliseconds 200
+    Start-Sleep -Milliseconds $switchSettleMs
     foreach ($rule in $batch) {
       Write-Host "  launch $($rule.process) $(if ($rule.args) { $rule.args } else { '' })"
       Start-RuleProcess -Rule $rule
-      Start-Sleep -Milliseconds 80
+      Start-Sleep -Milliseconds $launchGapMs
     }
 
     # Stay on this desktop until each app shows a real window. Chromium/Electron
@@ -528,7 +592,7 @@ if (-not $SkipLaunch) {
     foreach ($rule in $batch) {
       $win = Wait-MatchingWindow -ProcessName $rule.process -TitleMatch $rule.titleMatch `
         -TargetLeft ([int]$rule.left) -TargetTop ([int]$rule.top) `
-        -UsedHwnds $launchReady -TimeoutSec 45
+        -UsedHwnds $launchReady -TimeoutSec $launchReadyTimeout
       if ($win) {
         [void]$launchReady.Add([int64]$win.Hwnd)
         Write-Host "  ready $($rule.process) hwnd=$($win.Hwnd)"
@@ -545,7 +609,7 @@ Write-Host "=== Place pass ==="
 $pendingPlace = [System.Collections.Generic.List[object]]::new()
 foreach ($rule in $rules) {
   $ok = Place-RuleWindow -Rule $rule -DesktopObj $desktopMap[$rule.desktop] `
-    -UsedHwnds $usedHwnds -TimeoutSec 0
+    -UsedHwnds $usedHwnds -TimeoutSec $placeQuickTimeout
   if (-not $ok) { $pendingPlace.Add($rule) | Out-Null }
 }
 
@@ -582,7 +646,7 @@ if ($pendingPlace.Count -gt 0) {
       $procUp = @(Get-Process -Name $rule.process -ErrorAction SilentlyContinue).Count -gt 0
     }
     # Missing process: fail fast. Slow Electron/Chromium UIs need a longer budget.
-    $timeout = if (-not $procUp) { 8 } elseif ($rule.launch) { 45 } else { 15 }
+    $timeout = if (-not $procUp) { 8 } elseif ($rule.launch) { $placeSlowTimeout } else { 15 }
     [void](Place-RuleWindow -Rule $rule -DesktopObj $desktopMap[$rule.desktop] `
       -UsedHwnds $usedHwnds -TimeoutSec $timeout)
   }

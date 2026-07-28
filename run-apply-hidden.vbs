@@ -29,7 +29,8 @@ If ps = "" Then
 End If
 
 ' Keep -WindowStyle Hidden as a belt-and-suspenders; style 0 is what actually hides the window.
-cmd = """" & ps & """ -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File """ & script & """ -DelaySeconds 3"
+' -Logon: conservative settle/place; never create/reorder virtual desktops.
+cmd = """" & ps & """ -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File """ & script & """ -Logon -DelaySeconds 5"
 ' 0 = hidden, True = wait so Task Scheduler Last Run Result reflects apply exit code
 rc = sh.Run(cmd, 0, True)
 WScript.Quit rc
