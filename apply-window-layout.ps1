@@ -489,11 +489,24 @@ if (-not $SkipLaunch) {
     $pendingLaunch.Add($rule) | Out-Null
   }
 
-  # Preserve first-seen desktop order from rules
-  $desktopOrder = [System.Collections.Generic.List[string]]::new()
+  # Visit target desktops left→right (Get-DesktopList Number order), not rules-JSON
+  # first-seen order — so apply walks the Task View strip once instead of hopping around.
+  $pendingDeskNames = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
   foreach ($rule in $pendingLaunch) {
-    if (-not $desktopOrder.Contains([string]$rule.desktop)) {
-      $desktopOrder.Add([string]$rule.desktop) | Out-Null
+    [void]$pendingDeskNames.Add([string]$rule.desktop)
+  }
+  $desktopOrder = [System.Collections.Generic.List[string]]::new()
+  foreach ($d in @(Get-DesktopList | Sort-Object { [int]$_.Number })) {
+    $name = [string]$d.Name
+    if ($pendingDeskNames.Contains($name) -and -not $desktopOrder.Contains($name)) {
+      $desktopOrder.Add($name) | Out-Null
+    }
+  }
+  # Any pending name missing from the list (shouldn't happen) — append first-seen
+  foreach ($rule in $pendingLaunch) {
+    $name = [string]$rule.desktop
+    if (-not $desktopOrder.Contains($name)) {
+      $desktopOrder.Add($name) | Out-Null
     }
   }
 
@@ -538,7 +551,18 @@ foreach ($rule in $rules) {
 
 if ($pendingPlace.Count -gt 0) {
   Write-Host "Waiting on $($pendingPlace.Count) window(s) still opening..."
-  foreach ($rule in $pendingPlace) {
+  # Prefer LTR desktop switches for stragglers (same reason as launch pass)
+  $deskNumber = @{}
+  foreach ($d in @(Get-DesktopList)) {
+    $deskNumber[[string]$d.Name] = [int]$d.Number
+  }
+  $pendingPlaceSorted = @(
+    $pendingPlace | Sort-Object {
+      $n = $deskNumber[[string]$_.desktop]
+      if ($null -eq $n) { [int]::MaxValue } else { $n }
+    }, { [string]$_.process }
+  )
+  foreach ($rule in $pendingPlaceSorted) {
     # Keep the target desktop current so late first-windows inherit correctly
     try {
       Switch-Desktop -Desktop $desktopMap[$rule.desktop] -NoAnimation | Out-Null
