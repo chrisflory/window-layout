@@ -44,23 +44,31 @@ public sealed class ProgressForm : Form
         MaximizeBox = false;
         MinimizeBox = false;
         ControlBox = false;
-        Width = 360;
-        Height = 148;
+        AutoSize = false;
+        AutoScaleMode = AutoScaleMode.Dpi;
+        // ClientSize (not Height) — FixedToolWindow chrome was eating the Stop button.
+        ClientSize = new Size(400, 178);
         Font = new Font("Segoe UI", 9.5f);
         DoubleBuffered = true;
-        Padding = new Padding(14);
+        Padding = new Padding(16);
 
         var theme = AppTheme.Dark;
         BackColor = theme.BgHeader;
         ForeColor = theme.TextPrimary;
+
+        const int pad = 16;
+        const int stopW = 108;
+        const int stopH = 36;
+        var contentW = ClientSize.Width - pad * 2;
 
         _title = new Label
         {
             Text = "Restoring window layout",
             Font = new Font("Segoe UI Semibold", 11f),
             AutoSize = false,
-            Location = new Point(14, 12),
-            Size = new Size(250, 22),
+            Location = new Point(pad, 14),
+            Size = new Size(contentW, 24),
+            Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
             ForeColor = theme.TextPrimary,
             BackColor = Color.Transparent
         };
@@ -68,8 +76,9 @@ public sealed class ProgressForm : Form
         {
             Text = "Starting…",
             AutoSize = false,
-            Location = new Point(14, 38),
-            Size = new Size(250, 18),
+            Location = new Point(pad, 42),
+            Size = new Size(contentW, 20),
+            Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
             ForeColor = theme.AccentHint,
             BackColor = Color.Transparent
         };
@@ -77,8 +86,9 @@ public sealed class ProgressForm : Form
         {
             Text = "",
             AutoSize = false,
-            Location = new Point(14, 58),
-            Size = new Size(330, 20),
+            Location = new Point(pad, 66),
+            Size = new Size(contentW, 22),
+            Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
             ForeColor = theme.TextSoft,
             BackColor = Color.Transparent
         };
@@ -86,20 +96,22 @@ public sealed class ProgressForm : Form
         {
             Text = "",
             AutoSize = false,
-            Location = new Point(14, 80),
-            Size = new Size(200, 18),
+            Location = new Point(pad, 94),
+            Size = new Size(contentW - stopW - 12, 20),
+            Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
             ForeColor = theme.TextMuted,
             BackColor = Color.Transparent
         };
         _stop = new SoftButton
         {
             Text = "Stop",
-            Location = new Point(250, 100),
-            Size = new Size(88, 32),
+            Size = new Size(stopW, stopH),
+            Location = new Point(ClientSize.Width - pad - stopW, ClientSize.Height - pad - stopH),
+            Anchor = AnchorStyles.Bottom | AnchorStyles.Right,
             BackColor = theme.BtnDanger,
             ForeColor = theme.SoftButtonFg,
             CornerRadius = 8,
-            Font = new Font("Segoe UI Semibold", 9f)
+            Font = new Font("Segoe UI Semibold", 9.5f)
         };
         _stop.Click += (_, _) => RequestStop();
 
