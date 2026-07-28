@@ -464,26 +464,25 @@ if (-not $SkipLaunch) {
     }
     if (-not $launchClaimed.Add($claimKey)) { continue }
 
+    # Chromium/Electron (Edge, Chrome, Brave, Glean, …) often keep background
+    # processes with no UI. Treat "already running" as "has a matching window";
+    # otherwise Start-Process so the existing instance opens/activates a window.
+    Invalidate-WindowSnapshot
     if ($rule.process -eq 'explorer') {
-      Invalidate-WindowSnapshot
       $already = @(Get-MatchingWindows -ProcessName 'explorer' -TitleMatch $rule.titleMatch)
       if ($already.Count -gt 0) {
         Write-Host "Explorer folder already open: $($rule.args)"
         continue
       }
     } else {
-      $existing = @(Get-Process -Name $rule.process -ErrorAction SilentlyContinue)
-      if ($existing.Count -gt 0 -and $rule.process -ne 'Taskmgr') {
-        Write-Host "Already running: $($rule.process)"
+      $existingWins = @(Get-MatchingWindows -ProcessName $rule.process -TitleMatch $rule.titleMatch -ForceRefresh)
+      if ($existingWins.Count -gt 0) {
+        Write-Host "Already running with window: $($rule.process)"
         continue
       }
-      if ($rule.process -eq 'Taskmgr') {
-        Invalidate-WindowSnapshot
-        $tmWin = @(Get-MatchingWindows -ProcessName 'Taskmgr' -TitleMatch $null)
-        if ($tmWin.Count -gt 0) {
-          Write-Host 'Already running: Taskmgr'
-          continue
-        }
+      $existingProcs = @(Get-Process -Name $rule.process -ErrorAction SilentlyContinue)
+      if ($existingProcs.Count -gt 0) {
+        Write-Host "Process alive but no window: $($rule.process) — launching to open UI"
       }
     }
 
@@ -545,8 +544,21 @@ if ($pendingPlace.Count -gt 0) {
       Switch-Desktop -Desktop $desktopMap[$rule.desktop] -NoAnimation | Out-Null
     } catch {}
     $procUp = @(Get-Process -Name $rule.process -ErrorAction SilentlyContinue).Count -gt 0
+    Invalidate-WindowSnapshot
+    $hasWin = @(Get-MatchingWindows -ProcessName $rule.process -TitleMatch $rule.titleMatch).Count -gt 0
+    # Process alive with no UI (Chromium background apps): nudge a window open
+    if (-not $SkipLaunch -and $rule.launch -and $procUp -and -not $hasWin) {
+      Write-Host "  re-launch $($rule.process) (process up, no window yet)"
+      Start-RuleProcess -Rule $rule
+      Start-Sleep -Milliseconds 300
+    } elseif (-not $SkipLaunch -and $rule.launch -and -not $procUp) {
+      Write-Host "  re-launch $($rule.process) (process missing)"
+      Start-RuleProcess -Rule $rule
+      Start-Sleep -Milliseconds 300
+      $procUp = @(Get-Process -Name $rule.process -ErrorAction SilentlyContinue).Count -gt 0
+    }
     # Missing process: fail fast. Slow Electron/Chromium UIs need a longer budget.
-    $timeout = if (-not $procUp) { 3 } elseif ($rule.launch) { 45 } else { 15 }
+    $timeout = if (-not $procUp) { 8 } elseif ($rule.launch) { 45 } else { 15 }
     [void](Place-RuleWindow -Rule $rule -DesktopObj $desktopMap[$rule.desktop] `
       -UsedHwnds $usedHwnds -TimeoutSec $timeout)
   }
