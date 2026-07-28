@@ -25,6 +25,8 @@ Re-run step 1 anytime after you rearrange. Extra tools are under **More options*
 
 Emergency stop: **More options → Emergency stop**, or create `DISABLE-LAYOUT` in the install folder.
 
+While restore runs (sign-in or **Test restore**), a small always-on-top progress overlay shows the current step and a **Stop** button. Stop cancels the current apply only (`apply-cancel.flag`); Emergency stop permanently disables until cleared. The overlay is pinned to all virtual desktops via VirtualDesktop `Pin-Window` when the module is available.
+
 ## Rebuild (maintainers)
 
 ```powershell

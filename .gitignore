@@ -21,6 +21,8 @@ installer/assets/app-256-check.png
 # Keep the blank starter; ignore backups
 window-layout.rules.json.bak
 DISABLE-LAYOUT
+apply-progress.json
+apply-cancel.flag
 
 # OS junk
 Thumbs.db

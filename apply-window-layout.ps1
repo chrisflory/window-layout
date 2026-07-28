@@ -44,13 +44,128 @@ $ErrorActionPreference = 'Stop'
 
 # Kill switch: if this file exists next to the script, exit immediately
 $disableFlag = Join-Path $PSScriptRoot 'DISABLE-LAYOUT'
+$progressFile = Join-Path $PSScriptRoot 'apply-progress.json'
+$cancelFlag = Join-Path $PSScriptRoot 'apply-cancel.flag'
+$script:OverlayStarted = $false
+$script:ApplyCancelled = $false
+$script:ProgressTotal = 0
+$script:ProgressCurrent = 0
+
 if (Test-Path -LiteralPath $disableFlag) {
   Write-Host "DISABLE-LAYOUT present — skipping apply. Delete that file to re-enable."
   return
 }
 
+# Fresh cancel flag each run (Stop writes this; not the permanent DISABLE-LAYOUT)
+if (Test-Path -LiteralPath $cancelFlag) {
+  Remove-Item -LiteralPath $cancelFlag -Force -ErrorAction SilentlyContinue
+}
+
 if ($LogFile) {
   try { Start-Transcript -Path $LogFile -Force | Out-Null } catch {}
+}
+
+function Write-ApplyProgress {
+  param(
+    [string]$Phase,
+    [string]$Message = '',
+    [string]$State = 'running',
+    [Nullable[int]]$Current = $null,
+    [Nullable[int]]$Total = $null
+  )
+  if ($null -ne $Current) { $script:ProgressCurrent = [int]$Current }
+  if ($null -ne $Total) { $script:ProgressTotal = [int]$Total }
+  $hwnd = $null
+  $pidOverlay = $null
+  try {
+    if (Test-Path -LiteralPath $progressFile) {
+      $prev = Get-Content -LiteralPath $progressFile -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json -ErrorAction SilentlyContinue
+      if ($prev -and $prev.hwnd) { $hwnd = [int64]$prev.hwnd }
+      if ($prev -and $prev.pid) { $pidOverlay = [int]$prev.pid }
+    }
+  } catch {}
+  $obj = [ordered]@{
+    phase      = $Phase
+    current    = [int]$script:ProgressCurrent
+    total      = [int]$script:ProgressTotal
+    message    = $Message
+    state      = $State
+    updatedUtc = [datetime]::UtcNow.ToString('o')
+  }
+  if ($null -ne $hwnd) { $obj['hwnd'] = $hwnd }
+  if ($null -ne $pidOverlay) { $obj['pid'] = $pidOverlay }
+  try {
+    ($obj | ConvertTo-Json -Compress) | Set-Content -LiteralPath $progressFile -Encoding utf8 -Force
+  } catch {}
+}
+
+function Test-ApplyCancelled {
+  if ($script:ApplyCancelled) { return $true }
+  if (Test-Path -LiteralPath $cancelFlag) {
+    $script:ApplyCancelled = $true
+    return $true
+  }
+  if (Test-Path -LiteralPath $disableFlag) {
+    $script:ApplyCancelled = $true
+    return $true
+  }
+  return $false
+}
+
+function Assert-NotCancelled {
+  if (Test-ApplyCancelled) {
+    throw 'APPLY_CANCELLED'
+  }
+}
+
+function Start-ApplyOverlay {
+  $exe = Join-Path $PSScriptRoot 'WindowLayout.exe'
+  if (-not (Test-Path -LiteralPath $exe)) {
+    Write-Host 'Progress overlay skipped (WindowLayout.exe not found next to scripts).'
+    return
+  }
+  Write-ApplyProgress -Phase 'starting' -Message 'Starting progress overlay…' -State 'running' -Current 0
+  try {
+    Start-Process -FilePath $exe -ArgumentList @('--progress', $PSScriptRoot) -WindowStyle Normal | Out-Null
+    $script:OverlayStarted = $true
+  } catch {
+    Write-Warning "Could not start progress overlay: $($_.Exception.Message)"
+    return
+  }
+  # Wait briefly for overlay HWND, then pin to all virtual desktops
+  $deadline = (Get-Date).AddSeconds(4)
+  $hwnd = [IntPtr]::Zero
+  do {
+    Start-Sleep -Milliseconds 150
+    try {
+      if (Test-Path -LiteralPath $progressFile) {
+        $p = Get-Content -LiteralPath $progressFile -Raw | ConvertFrom-Json
+        if ($p.hwnd -and [int64]$p.hwnd -ne 0) {
+          $hwnd = [IntPtr][int64]$p.hwnd
+          break
+        }
+      }
+    } catch {}
+  } while ((Get-Date) -lt $deadline)
+
+  if ($hwnd -ne [IntPtr]::Zero) {
+    try {
+      Pin-Window -Hwnd $hwnd | Out-Null
+      Write-Host "Progress overlay pinned to all desktops (hwnd=$hwnd)."
+    } catch {
+      Write-Warning "Pin-Window for overlay failed (shows on current desktop only): $($_.Exception.Message)"
+    }
+  }
+}
+
+function Complete-ApplyOverlay {
+  param(
+    [string]$State = 'done',
+    [string]$Message = 'Layout apply complete.'
+  )
+  Write-ApplyProgress -Phase $(if ($State -eq 'cancelled') { 'cancelled' } else { 'done' }) `
+    -Message $Message -State $State
+  # Overlay auto-closes ~2s after done/cancelled; leave file for a moment
 }
 
 # Never launch / place these (shell chrome — not File Explorer folder windows or Task Manager)
@@ -306,6 +421,7 @@ function Wait-MatchingWindow {
   $noProcSince = $null
   $first = $true
   do {
+    Assert-NotCancelled
     if (-not $first) { Invalidate-WindowSnapshot }
     $first = $false
     $procUp = @(Get-Process -Name $ProcessName -ErrorAction SilentlyContinue).Count -gt 0
@@ -410,8 +526,10 @@ function Place-RuleWindow {
     [System.Collections.Generic.HashSet[long]]$UsedHwnds,
     [int]$TimeoutSec
   )
+  Assert-NotCancelled
   $label = if ($Rule.titleMatch) { "$($Rule.process) [$($Rule.titleMatch)]" } else { $Rule.process }
   Write-Host "Placing $label -> desktop '$($Rule.desktop)' ($($Rule.left),$($Rule.top) $($Rule.width)x$($Rule.height))..."
+  Write-ApplyProgress -Phase 'place' -Message "Placing $label"
 
   $win = Wait-MatchingWindow -ProcessName $Rule.process -TitleMatch $Rule.titleMatch `
     -TargetLeft ([int]$Rule.left) -TargetTop ([int]$Rule.top) -UsedHwnds $UsedHwnds -TimeoutSec $TimeoutSec
@@ -463,9 +581,21 @@ $doc = Get-Content -LiteralPath $RulesFile -Raw | ConvertFrom-Json
 # silent launcher as logon-conservative when -Logon was omitted by older VBS.
 $isLogon = [bool]$Logon -or (($null -ne $DelaySeconds) -and ([int]$DelaySeconds -gt 0))
 $delay = if ($null -ne $DelaySeconds) { [int]$DelaySeconds } elseif ($null -ne $doc.startupDelaySeconds) { [int]$doc.startupDelaySeconds } else { 0 }
+
+Start-ApplyOverlay
+
+try {
+
 if ($delay -gt 0) {
   Write-Host "Waiting ${delay}s before applying layout..."
-  Start-Sleep -Seconds $delay
+  Write-ApplyProgress -Phase 'waiting' -Message "Waiting ${delay}s before apply…"
+  $waitUntil = (Get-Date).AddSeconds($delay)
+  while ((Get-Date) -lt $waitUntil) {
+    Assert-NotCancelled
+    $left = [Math]::Ceiling(($waitUntil - (Get-Date)).TotalSeconds)
+    Write-ApplyProgress -Phase 'waiting' -Message "Waiting ${left}s before apply…"
+    Start-Sleep -Milliseconds 250
+  }
 }
 if ($isLogon) {
   Write-Host "Logon mode: match existing named desktops only; longer settle/place waits."
@@ -476,6 +606,7 @@ $rules = @($doc.rules | Where-Object {
 })
 if ($rules.Count -eq 0) {
   Write-Host 'No enabled rules.'
+  Complete-ApplyOverlay -State 'done' -Message 'No enabled rules.'
   return
 }
 
@@ -485,6 +616,7 @@ $startDesktop = Get-CurrentDesktop
 $desktopMap = @{}
 $missingDesktops = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
 foreach ($d in ($rules.desktop | Select-Object -Unique)) {
+  Assert-NotCancelled
   $resolved = Resolve-NamedDesktop -Name $d
   if ($null -eq $resolved) {
     [void]$missingDesktops.Add([string]$d)
@@ -499,6 +631,7 @@ if ($missingDesktops.Count -gt 0) {
 }
 if ($rules.Count -eq 0) {
   Write-Warning 'No rules left after desktop name matching — nothing to apply.'
+  Complete-ApplyOverlay -State 'done' -Message 'No matching desktops — nothing to apply.'
   return
 }
 
@@ -511,16 +644,19 @@ $placeSlowTimeout = if ($isLogon) { 60 } else { 45 }
 
 $usedHwnds = [System.Collections.Generic.HashSet[long]]::new()
 $applyStarted = Get-Date
+Write-ApplyProgress -Phase 'launch' -Message 'Preparing…' -Current 0 -Total $rules.Count
 
 # Launch pass: one Switch-Desktop per target desktop, then start that desktop's apps.
 # First windows inherit the current desktop (critical for Brave/Chrome).
 if (-not $SkipLaunch) {
   Write-Host ""
   Write-Host "=== Launch pass (per desktop) ==="
+  Write-ApplyProgress -Phase 'launch' -Message 'Launch pass…'
   $launchClaimed = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
   $pendingLaunch = [System.Collections.Generic.List[object]]::new()
 
   foreach ($rule in ($rules | Where-Object { $_.launch })) {
+    Assert-NotCancelled
     $claimKey = if ($rule.process -eq 'explorer') {
       "explorer::$($rule.args)"
     } else {
@@ -574,13 +710,19 @@ if (-not $SkipLaunch) {
     }
   }
 
+  $launchStep = 0
   foreach ($deskName in $desktopOrder) {
+    Assert-NotCancelled
     $batch = @($pendingLaunch | Where-Object { $_.desktop -eq $deskName })
     Write-Host "Switch -> $deskName; launching $($batch.Count) app(s)..."
+    Write-ApplyProgress -Phase 'launch' -Message "Launching on '$deskName' ($($batch.Count) app(s))"
     Switch-Desktop -Desktop $desktopMap[$deskName] -NoAnimation | Out-Null
     Start-Sleep -Milliseconds $switchSettleMs
     foreach ($rule in $batch) {
+      Assert-NotCancelled
+      $launchStep++
       Write-Host "  launch $($rule.process) $(if ($rule.args) { $rule.args } else { '' })"
+      Write-ApplyProgress -Phase 'launch' -Message "Launch $($rule.process)" -Current $launchStep
       Start-RuleProcess -Rule $rule
       Start-Sleep -Milliseconds $launchGapMs
     }
@@ -590,6 +732,8 @@ if (-not $SkipLaunch) {
     # we switch away too early, they land on the wrong desktop.
     $launchReady = [System.Collections.Generic.HashSet[long]]::new()
     foreach ($rule in $batch) {
+      Assert-NotCancelled
+      Write-ApplyProgress -Phase 'launch' -Message "Waiting for $($rule.process)…"
       $win = Wait-MatchingWindow -ProcessName $rule.process -TitleMatch $rule.titleMatch `
         -TargetLeft ([int]$rule.left) -TargetTop ([int]$rule.top) `
         -UsedHwnds $launchReady -TimeoutSec $launchReadyTimeout
@@ -606,8 +750,13 @@ if (-not $SkipLaunch) {
 # Place pass: quick try first (apps already up), then wait only for stragglers
 Write-Host ""
 Write-Host "=== Place pass ==="
+Write-ApplyProgress -Phase 'place' -Message 'Place pass…' -Current 0 -Total $rules.Count
 $pendingPlace = [System.Collections.Generic.List[object]]::new()
+$placeIdx = 0
 foreach ($rule in $rules) {
+  Assert-NotCancelled
+  $placeIdx++
+  Write-ApplyProgress -Phase 'place' -Message "Placing $($rule.process)" -Current $placeIdx -Total $rules.Count
   $ok = Place-RuleWindow -Rule $rule -DesktopObj $desktopMap[$rule.desktop] `
     -UsedHwnds $usedHwnds -TimeoutSec $placeQuickTimeout
   if (-not $ok) { $pendingPlace.Add($rule) | Out-Null }
@@ -615,6 +764,7 @@ foreach ($rule in $rules) {
 
 if ($pendingPlace.Count -gt 0) {
   Write-Host "Waiting on $($pendingPlace.Count) window(s) still opening..."
+  Write-ApplyProgress -Phase 'place' -Message "Waiting on $($pendingPlace.Count) window(s)…"
   # Prefer LTR desktop switches for stragglers (same reason as launch pass)
   $deskNumber = @{}
   foreach ($d in @(Get-DesktopList)) {
@@ -627,6 +777,7 @@ if ($pendingPlace.Count -gt 0) {
     }, { [string]$_.process }
   )
   foreach ($rule in $pendingPlaceSorted) {
+    Assert-NotCancelled
     # Keep the target desktop current so late first-windows inherit correctly
     try {
       Switch-Desktop -Desktop $desktopMap[$rule.desktop] -NoAnimation | Out-Null
@@ -637,10 +788,12 @@ if ($pendingPlace.Count -gt 0) {
     # Process alive with no UI (Chromium background apps): nudge a window open
     if (-not $SkipLaunch -and $rule.launch -and $procUp -and -not $hasWin) {
       Write-Host "  re-launch $($rule.process) (process up, no window yet)"
+      Write-ApplyProgress -Phase 'place' -Message "Re-launch $($rule.process)"
       Start-RuleProcess -Rule $rule
       Start-Sleep -Milliseconds 300
     } elseif (-not $SkipLaunch -and $rule.launch -and -not $procUp) {
       Write-Host "  re-launch $($rule.process) (process missing)"
+      Write-ApplyProgress -Phase 'place' -Message "Re-launch $($rule.process)"
       Start-RuleProcess -Rule $rule
       Start-Sleep -Milliseconds 300
       $procUp = @(Get-Process -Name $rule.process -ErrorAction SilentlyContinue).Count -gt 0
@@ -655,9 +808,14 @@ if ($pendingPlace.Count -gt 0) {
 # Final verification pass for anything still wrong (window recreations, late hwnds)
 Write-Host ""
 Write-Host "=== Verification pass ==="
+Write-ApplyProgress -Phase 'verify' -Message 'Verification pass…' -Current 0 -Total $rules.Count
 Invalidate-WindowSnapshot
 $usedHwnds.Clear()
+$verifyIdx = 0
 foreach ($rule in $rules) {
+  Assert-NotCancelled
+  $verifyIdx++
+  Write-ApplyProgress -Phase 'verify' -Message "Checking $($rule.process)" -Current $verifyIdx -Total $rules.Count
   $win = Select-BestWindow -ProcessName $rule.process -TitleMatch $rule.titleMatch `
     -TargetLeft ([int]$rule.left) -TargetTop ([int]$rule.top) -UsedHwnds $usedHwnds
   if (-not $win) {
@@ -703,6 +861,21 @@ if ($Follow -and $doc.followDesktop) {
 }
 
 Write-Host 'Layout apply complete.'
+Complete-ApplyOverlay -State 'done' -Message "Done in ${elapsed}s."
+
+} catch {
+  if ("$($_.Exception.Message)" -eq 'APPLY_CANCELLED' -or $script:ApplyCancelled) {
+    Write-Host 'Apply cancelled by user (Stop / cancel flag).'
+    Complete-ApplyOverlay -State 'cancelled' -Message 'Apply cancelled.'
+    # Soft cancel: remove one-shot flag so next apply works; leave DISABLE-LAYOUT alone
+    if (Test-Path -LiteralPath $cancelFlag) {
+      Remove-Item -LiteralPath $cancelFlag -Force -ErrorAction SilentlyContinue
+    }
+  } else {
+    Complete-ApplyOverlay -State 'error' -Message $_.Exception.Message
+    throw
+  }
+}
 
 } finally {
   if ($LogFile) {
